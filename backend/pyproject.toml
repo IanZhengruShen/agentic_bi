@@ -1,0 +1,72 @@
+[project]
+name = "agentic-bi-backend"
+version = "0.1.0"
+description = "Agentic BI Backend - AI-powered business intelligence platform"
+requires-python = ">=3.12"
+dependencies = [
+    # Core Framework
+    "fastapi==0.109.0",
+    "uvicorn[standard]==0.27.0",
+    "python-multipart==0.0.6",
+
+    # Database & ORM
+    "sqlalchemy==2.0.25",
+    "asyncpg==0.29.0",
+    "psycopg2-binary==2.9.9",
+    "alembic==1.13.1",
+
+    # Redis & Caching
+    "redis==5.0.1",
+    "celery==5.3.6",
+    "flower==2.0.1",
+
+    # Authentication & Security
+    "python-jose[cryptography]==3.3.0",
+    "passlib[bcrypt]==1.7.4",
+    "python-dotenv==1.0.0",
+    "pydantic==2.5.3",
+    "pydantic-settings==2.1.0",
+
+    # Azure OpenAI & LangChain
+    "openai==1.10.0",
+    "langchain==0.1.4",
+    "langchain-openai==0.0.5",
+    "langgraph==0.0.20",
+    "langsmith==0.0.83",
+
+    # Observability & Monitoring
+    "langfuse==2.20.0",
+
+    # HTTP Client & WebSockets
+    "httpx==0.26.0",
+    "websockets==12.0",
+    "python-socketio==5.11.1",
+
+    # Utilities
+    "pydantic-core==2.14.6",
+    "annotated-types==0.6.0",
+    "typing-extensions==4.9.0",
+    "python-dateutil==2.8.2",
+
+    # Monitoring & Logging
+    "prometheus-client==0.19.0",
+    "python-json-logger==2.0.7",
+
+    # Data Processing
+    "pandas==2.1.4",
+    "numpy==1.26.3",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest==7.4.4",
+    "pytest-asyncio==0.23.3",
+    "pytest-cov==4.1.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["app"]
