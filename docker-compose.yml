@@ -1,0 +1,187 @@
+services:
+  # ============================================
+  # Database
+  # ============================================
+  postgres:
+    image: postgres:15-alpine
+    container_name: agentic-bi-postgres
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-agentic_bi}
+      POSTGRES_USER: ${POSTGRES_USER:-admin}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-devpassword123}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./infrastructure/postgres/init:/docker-entrypoint-initdb.d:ro
+    expose:
+      - "5432"
+    networks:
+      - agentic-bi-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-admin} -d ${POSTGRES_DB:-agentic_bi}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # ============================================
+  # Redis Cache & Message Broker
+  # ============================================
+  redis:
+    image: redis:7-alpine
+    container_name: agentic-bi-redis
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-devredispass}
+    volumes:
+      - redis-data:/data
+    expose:
+      - "6379"
+    networks:
+      - agentic-bi-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+  # ============================================
+  # Backend API
+  # ============================================
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      target: development
+    container_name: agentic-bi-backend
+    environment:
+      - ENV=development
+      - DEBUG=true
+      - PYTHONPATH=/app
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-admin}:${POSTGRES_PASSWORD:-devpassword123}@postgres:5432/${POSTGRES_DB:-agentic_bi}
+      - REDIS_URL=redis://:${REDIS_PASSWORD:-devredispass}@redis:6379/0
+      - AZURE_OPENAI_API_KEY=${AZURE_OPENAI_API_KEY}
+      - AZURE_OPENAI_ENDPOINT=${AZURE_OPENAI_ENDPOINT}
+      - AZURE_OPENAI_DEPLOYMENT=${AZURE_OPENAI_DEPLOYMENT:-gpt-4}
+      - MINDSDB_API_URL=${MINDSDB_API_URL}
+      - OPA_URL=${OPA_URL}
+      - LANGFUSE_HOST=${LANGFUSE_HOST}
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
+      - JWT_SECRET=${JWT_SECRET:-dev-secret-key-change-in-production}
+      - JWT_ALGORITHM=HS256
+      - JWT_EXPIRATION_MINUTES=1440
+      - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:3000,http://frontend:3000}
+    volumes:
+      - backend-cache:/app/.cache
+    expose:
+      - "8000"
+    networks:
+      - agentic-bi-network
+      - traefik-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=${TRAEFIK_NETWORK:-web}"
+      - "traefik.http.routers.agentic-bi-api.rule=Host(`${API_DOMAIN:-api-localhost}`) || (Host(`${FRONTEND_DOMAIN:-localhost}`) && PathPrefix(`/api`))"
+      - "traefik.http.routers.agentic-bi-api.entrypoints=${TRAEFIK_ENTRYPOINT:-websecure}"
+      - "traefik.http.routers.agentic-bi-api.tls=${TRAEFIK_TLS:-true}"
+      - "traefik.http.routers.agentic-bi-api.tls.certresolver=${TRAEFIK_CERTRESOLVER:-letsencrypt}"
+      - "traefik.http.services.agentic-bi-api.loadbalancer.server.port=8000"
+      # WebSocket support
+      - "traefik.http.routers.agentic-bi-api.middlewares=agentic-bi-headers"
+      - "traefik.http.middlewares.agentic-bi-headers.headers.customrequestheaders.X-Forwarded-Proto=https"
+    restart: unless-stopped
+    working_dir: /app
+    command: uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+  # ============================================
+  # Celery Worker
+  # ============================================
+  celery-worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      target: development
+    container_name: agentic-bi-celery-worker
+    environment:
+      - ENV=development
+      - DEBUG=true
+      - PYTHONPATH=/app
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-admin}:${POSTGRES_PASSWORD:-devpassword123}@postgres:5432/${POSTGRES_DB:-agentic_bi}
+      - REDIS_URL=redis://:${REDIS_PASSWORD:-devredispass}@redis:6379/0
+      - AZURE_OPENAI_API_KEY=${AZURE_OPENAI_API_KEY}
+      - AZURE_OPENAI_ENDPOINT=${AZURE_OPENAI_ENDPOINT}
+      - AZURE_OPENAI_DEPLOYMENT=${AZURE_OPENAI_DEPLOYMENT:-gpt-4}
+      - MINDSDB_API_URL=${MINDSDB_API_URL}
+      - LANGFUSE_HOST=${LANGFUSE_HOST}
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
+    networks:
+      - agentic-bi-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    working_dir: /app
+    command: uv run celery -A app.core.celery:celery_app worker --loglevel=info
+
+  # ============================================
+  # Frontend
+  # ============================================
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      target: development
+    container_name: agentic-bi-frontend
+    environment:
+      - NODE_ENV=development
+      - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-https://${API_DOMAIN:-api-localhost}}
+      - NEXT_PUBLIC_WS_URL=${NEXT_PUBLIC_WS_URL:-wss://${API_DOMAIN:-api-localhost}/ws}
+    expose:
+      - "3000"
+    networks:
+      - agentic-bi-network
+      - traefik-network
+    depends_on:
+      - backend
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=${TRAEFIK_NETWORK:-web}"
+      - "traefik.http.routers.agentic-bi-frontend.rule=Host(`${FRONTEND_DOMAIN:-localhost}`)"
+      - "traefik.http.routers.agentic-bi-frontend.entrypoints=${TRAEFIK_ENTRYPOINT:-websecure}"
+      - "traefik.http.routers.agentic-bi-frontend.tls=${TRAEFIK_TLS:-true}"
+      - "traefik.http.routers.agentic-bi-frontend.tls.certresolver=${TRAEFIK_CERTRESOLVER:-letsencrypt}"
+      - "traefik.http.services.agentic-bi-frontend.loadbalancer.server.port=3000"
+    restart: unless-stopped
+    command: npm run dev
+
+# ============================================
+# Networks
+# ============================================
+networks:
+  agentic-bi-network:
+    name: agentic-bi-network
+    driver: bridge
+
+  # External Traefik network (must exist beforehand)
+  traefik-network:
+    external: true
+    name: ${TRAEFIK_NETWORK:-web}
+
+# ============================================
+# Volumes
+# ============================================
+volumes:
+  postgres-data:
+    name: agentic-bi-postgres-data
+  redis-data:
+    name: agentic-bi-redis-data
+  backend-cache:
+    name: agentic-bi-backend-cache

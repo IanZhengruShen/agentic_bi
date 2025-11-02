@@ -23,6 +23,11 @@ venv/
 env/
 ENV/
 .venv
+.venv/
+
+# UV
+.uv/
+uv.lock
 
 # Node
 node_modules/
@@ -70,3 +75,26 @@ credentials.json
 # OS
 Thumbs.db
 .DS_Store
+
+# Docker volumes and data
+postgres-data/
+redis-data/
+*.cache
+
+# Next.js
+.next/
+out/
+
+# Logs
+logs/
+*.log
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# Keep prp_files for planning
+prp_files/
+CLAUDE.md
+docs/
