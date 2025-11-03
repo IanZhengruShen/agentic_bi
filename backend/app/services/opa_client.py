@@ -120,6 +120,13 @@ class OPAClient:
         Raises:
             HTTPException: If permission is denied
         """
+        # Skip OPA check if disabled (for testing/development)
+        if not settings.opa.opa_enabled:
+            logger.debug(
+                f"OPA disabled - Allowing: User: {user_id}, Action: {action}, Resource: {resource_type}"
+            )
+            return
+
         allowed = await self.check_permission(
             user_id, company_id, role, action, resource_type, resource_data
         )

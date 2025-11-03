@@ -112,6 +112,7 @@ class LangfuseSettings(BaseSettings):
 class OPASettings(BaseSettings):
     """OPA (Open Policy Agent) configuration."""
 
+    opa_enabled: bool = Field(default=False, description="Enable OPA authorization (set to False for testing)")
     opa_url: str = Field(default="http://opa-service:8181", description="OPA server URL")
     opa_timeout: int = Field(default=5, description="Timeout for OPA requests in seconds")
 

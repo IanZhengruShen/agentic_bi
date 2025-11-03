@@ -7,7 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import settings
 from app.api.v1.router import api_router
-from app.api import agents_router, visualizations_router, style_profiles_router
+from app.api import agents_router, visualizations_router, style_profiles_router, workflows_router
 
 # Create FastAPI app
 app = FastAPI(
@@ -34,6 +34,7 @@ app.include_router(api_router, prefix="/api/v1")
 app.include_router(agents_router)
 app.include_router(visualizations_router)
 app.include_router(style_profiles_router)
+app.include_router(workflows_router)
 
 
 @app.get("/")
@@ -45,6 +46,7 @@ async def root():
         "status": "running",
         "features": [
             "LangGraph-based agent workflows",
+            "Unified multi-agent orchestration (Analysis + Visualization)",
             "Human-in-the-loop interventions",
             "Natural language to SQL",
             "Automated data analysis",
