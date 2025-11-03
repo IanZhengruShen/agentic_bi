@@ -63,6 +63,9 @@ class WorkflowState(TypedDict):
     insights: Annotated[List[str], operator.add]
     recommendations: Annotated[List[str], operator.add]
 
+    # Enhanced analysis (PR#5 - additional tools like correlation, filtering, aggregation)
+    enhanced_analysis: Optional[Dict[str, Any]]
+
     # Visualization (for future PRs)
     visualizations: Annotated[List[Dict[str, Any]], operator.add]
 
@@ -144,6 +147,9 @@ def create_initial_state(
         analysis_results=None,
         insights=[],
         recommendations=[],
+
+        # Enhanced analysis
+        enhanced_analysis=None,
 
         # Visualization
         visualizations=[],
