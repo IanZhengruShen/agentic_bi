@@ -8,52 +8,45 @@ dependencies = [
     "fastapi==0.109.0",
     "uvicorn[standard]==0.27.0",
     "python-multipart==0.0.6",
-
     # Database & ORM
     "sqlalchemy==2.0.25",
     "asyncpg==0.29.0",
     "psycopg2-binary==2.9.9",
     "alembic==1.13.1",
-
     # Redis & Caching
     "redis==5.0.1",
     "celery==5.3.6",
     "flower==2.0.1",
-
     # Authentication & Security
     "python-jose[cryptography]==3.3.0",
     "passlib[bcrypt]==1.7.4",
     "bcrypt==4.0.1",
     "python-dotenv==1.0.0",
-    "pydantic==2.5.3",
+    "pydantic==2.11.3",
     "pydantic-settings==2.1.0",
     "email-validator==2.1.0",
 
     # Azure OpenAI & LangChain
-    "openai==1.10.0",
-    "langchain==0.1.4",
-    "langchain-openai==0.0.5",
-    "langgraph==0.0.20",
-    "langsmith==0.0.83",
-
+    "openai==2.6.0",
+    "langchain==1.0.3",
+    "langchain-openai==1.0.1",
+    "langgraph==1.0.2",
+    "langsmith==0.4.38",
     # Observability & Monitoring
-    "langfuse==2.20.0",
-
+    "langfuse==3.9.0",
     # HTTP Client & WebSockets
     "httpx==0.26.0",
     "websockets==12.0",
     "python-socketio==5.11.1",
-
     # Utilities
-    "pydantic-core==2.14.6",
+    "pydantic-core==2.33.1",
     "annotated-types==0.6.0",
-    "typing-extensions==4.9.0",
+    "typing-extensions==4.15.0",
     "python-dateutil==2.8.2",
-
+    "jinja2==3.1.2",
     # Monitoring & Logging
     "prometheus-client==0.19.0",
     "python-json-logger==2.0.7",
-
     # Data Processing
     "pandas==2.1.4",
     "numpy==1.26.3",

@@ -1,6 +1,5 @@
-"""
-Pydantic schemas package.
-"""
+"""Pydantic schemas for API request/response validation."""
+
 from app.schemas.user import (
     UserBase,
     UserCreate,
@@ -11,6 +10,7 @@ from app.schemas.user import (
     TokenRefreshRequest,
     PasswordChangeRequest,
 )
+
 from app.schemas.company import (
     CompanyBase,
     CompanyCreate,
@@ -18,7 +18,28 @@ from app.schemas.company import (
     CompanyResponse,
 )
 
+from app.schemas.agent_schemas import (
+    # Request schemas
+    QueryExecutionRequest,
+    HITLResponseSubmission,
+    # Response schemas
+    QueryExecutionResponse,
+    WorkflowStatusResponse,
+    QueryResultsResponse,
+    SessionListResponse,
+    PendingInterventionsResponse,
+    ErrorResponse,
+    HealthCheckResponse,
+)
+
+from app.schemas.sql_schemas import (
+    SQLValidationIssue,
+    SQLValidationResult,
+    SQLErrorCategory,
+)
+
 __all__ = [
+    # User schemas
     "UserBase",
     "UserCreate",
     "UserLogin",
@@ -27,8 +48,24 @@ __all__ = [
     "TokenResponse",
     "TokenRefreshRequest",
     "PasswordChangeRequest",
+    # Company schemas
     "CompanyBase",
     "CompanyCreate",
     "CompanyUpdate",
     "CompanyResponse",
+    # Requests
+    "QueryExecutionRequest",
+    "HITLResponseSubmission",
+    # Responses
+    "QueryExecutionResponse",
+    "WorkflowStatusResponse",
+    "QueryResultsResponse",
+    "SessionListResponse",
+    "PendingInterventionsResponse",
+    "ErrorResponse",
+    "HealthCheckResponse",
+    # SQL Validation
+    "SQLValidationIssue",
+    "SQLValidationResult",
+    "SQLErrorCategory",
 ]
