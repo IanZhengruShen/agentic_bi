@@ -57,7 +57,7 @@ services:
       - ENV=development
       - DEBUG=true
       - PYTHONPATH=/app
-      - DATABASE_URL=postgresql://${POSTGRES_USER:-admin}:${POSTGRES_PASSWORD:-devpassword123}@postgres:5432/${POSTGRES_DB:-agentic_bi}
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-admin}:${POSTGRES_PASSWORD:-devpassword123}@postgres:5432/${POSTGRES_DB:-agentic_bi}
       - REDIS_URL=redis://:${REDIS_PASSWORD:-devredispass}@redis:6379/0
       - AZURE_OPENAI_API_KEY=${AZURE_OPENAI_API_KEY}
       - AZURE_OPENAI_ENDPOINT=${AZURE_OPENAI_ENDPOINT}
@@ -111,7 +111,7 @@ services:
       - ENV=development
       - DEBUG=true
       - PYTHONPATH=/app
-      - DATABASE_URL=postgresql://${POSTGRES_USER:-admin}:${POSTGRES_PASSWORD:-devpassword123}@postgres:5432/${POSTGRES_DB:-agentic_bi}
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-admin}:${POSTGRES_PASSWORD:-devpassword123}@postgres:5432/${POSTGRES_DB:-agentic_bi}
       - REDIS_URL=redis://:${REDIS_PASSWORD:-devredispass}@redis:6379/0
       - AZURE_OPENAI_API_KEY=${AZURE_OPENAI_API_KEY}
       - AZURE_OPENAI_ENDPOINT=${AZURE_OPENAI_ENDPOINT}
