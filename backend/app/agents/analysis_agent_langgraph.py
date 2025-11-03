@@ -24,9 +24,11 @@ from app.agents.workflow_nodes import (
     validate_sql_node,
     execute_query_node,
     analyze_results_node,
+    enhanced_analysis_node,
     should_request_human_review,
     should_proceed_after_validation,
     should_analyze_results,
+    should_do_enhanced_analysis,
 )
 from app.core.llm import LLMClient, create_llm_client
 from app.services.mindsdb_service import MindsDBService, create_mindsdb_service
@@ -95,6 +97,7 @@ class AnalysisAgentLangGraph:
         4. validate_sql
         5. execute_query
         6. [Conditional] analyze_results (if successful)
+        7. [Conditional] enhanced_analysis (if analysis completed) - PR#5
 
         Returns:
             Compiled StateGraph
@@ -131,6 +134,12 @@ class AnalysisAgentLangGraph:
         workflow.add_node(
             "analyze_results",
             self._wrap_node(analyze_results_node)
+        )
+
+        # PR#5: Enhanced analysis node
+        workflow.add_node(
+            "enhanced_analysis",
+            self._wrap_node(enhanced_analysis_node, llm_client=self.llm_client)
         )
 
         # Define edges
@@ -173,8 +182,18 @@ class AnalysisAgentLangGraph:
             }
         )
 
-        # analyze_results -> END
-        workflow.add_edge("analyze_results", END)
+        # PR#5: analyze_results -> [enhanced_analysis OR END]
+        workflow.add_conditional_edges(
+            "analyze_results",
+            should_do_enhanced_analysis,
+            {
+                "enhanced_analysis": "enhanced_analysis",
+                "end": END,
+            }
+        )
+
+        # PR#5: enhanced_analysis -> END
+        workflow.add_edge("enhanced_analysis", END)
 
         # Compile the graph
         compiled = workflow.compile(checkpointer=self.checkpointer)

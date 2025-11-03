@@ -627,3 +627,195 @@ def should_analyze_results(state: WorkflowState) -> str:
     if state.get("query_success", False) and state.get("query_data"):
         return "analyze_results"
     return "end"
+
+
+def should_do_enhanced_analysis(state: WorkflowState) -> str:
+    """
+    Determine whether to run enhanced analysis.
+
+    Enhanced analysis runs if:
+    - Query succeeded
+    - We have data
+    - Basic analysis completed
+
+    Args:
+        state: Current workflow state
+
+    Returns:
+        Next node name: "enhanced_analysis" or "end"
+    """
+    if not state.get("query_success", False):
+        return "end"
+
+    if not state.get("query_data") or len(state["query_data"]) == 0:
+        return "end"
+
+    if not state.get("analysis_results"):
+        return "end"
+
+    # Run enhanced analysis
+    return "enhanced_analysis"
+
+
+# ============================================
+# Node: Enhanced Analysis (PR#5)
+# ============================================
+
+
+async def enhanced_analysis_node(
+    state: WorkflowState,
+    llm_client: LLMClient,
+) -> Dict[str, Any]:
+    """
+    Node: Perform enhanced analysis based on user query.
+
+    Uses LLM to decide which additional tools to run
+    (correlation, filtering, aggregation, etc.)
+
+    Args:
+        state: Current workflow state
+        llm_client: LLM client for decision making
+
+    Returns:
+        State updates with enhanced_analysis results
+    """
+    from app.tools.statistical_tools import correlation_analysis
+
+    logger.info("Enhanced analysis node: Determining additional analysis needed")
+
+    try:
+        data = state.get("query_data")
+        user_query = state.get("query")
+
+        if not data or len(data) == 0:
+            logger.info("No data available for enhanced analysis")
+            return {"enhanced_analysis": None}
+
+        # Ask LLM which additional analysis would be helpful
+        decision_prompt = f"""You are analyzing the results of a SQL query.
+
+User's original question: "{user_query}"
+
+We have {len(data)} rows of data with these columns: {list(data[0].keys())}
+
+The basic descriptive statistics have already been computed.
+
+What ADDITIONAL analysis would help answer the user's question better?
+
+Available tools:
+- correlation_analysis: Find relationships between numeric columns (use when user asks about correlation, relationships, or dependencies)
+
+Think about:
+1. Did the user ask about relationships or correlations?
+2. Are there numeric columns that might be related?
+3. Would understanding correlations provide valuable insights?
+
+Respond with JSON only:
+{{
+    "tools_to_run": ["correlation_analysis"],  // List of tools, or empty array if none needed
+    "reasoning": "Brief explanation of why these tools are useful"
+}}
+
+Examples:
+- User asks "Is there correlation between X and Y?" -> {{"tools_to_run": ["correlation_analysis"], "reasoning": "User explicitly asked about correlation"}}
+- User asks "Show me all users" -> {{"tools_to_run": [], "reasoning": "Simple data retrieval, no additional analysis needed"}}
+"""
+
+        # Get LLM decision
+        llm_response = await llm_client.chat_completion_with_system(
+            system_message="You are a data analysis assistant helping decide which analysis tools to use.",
+            user_message=decision_prompt,
+            trace_name="enhanced_analysis_decision",
+            metadata={
+                "user_query": user_query,
+                "row_count": len(data),
+            },
+        )
+
+        # Parse LLM response
+        import json
+        import re
+
+        # Extract JSON from response
+        response_text = llm_response.content
+        json_match = re.search(r'\{.*\}', response_text, re.DOTALL)
+
+        if not json_match:
+            logger.warning("Could not parse LLM decision for enhanced analysis")
+            return {"enhanced_analysis": None}
+
+        decision = json.loads(json_match.group(0))
+        tools_to_run = decision.get("tools_to_run", [])
+        reasoning = decision.get("reasoning", "")
+
+        logger.info(f"LLM decided to run tools: {tools_to_run}. Reasoning: {reasoning}")
+
+        # If no tools to run, return early
+        if not tools_to_run:
+            logger.info("No enhanced analysis tools needed")
+            return {"enhanced_analysis": None}
+
+        # Run selected tools
+        enhanced_results = {
+            "tools_used": tools_to_run,
+            "reasoning": reasoning,
+            "results": {},
+        }
+
+        insights = []
+
+        for tool_name in tools_to_run:
+            if tool_name == "correlation_analysis":
+                try:
+                    logger.info("Running correlation_analysis")
+                    corr_result = await correlation_analysis(data)
+
+                    enhanced_results["results"]["correlation_analysis"] = {
+                        "correlation_matrix": corr_result.correlation_matrix,
+                        "significant_correlations": corr_result.significant_correlations,
+                        "method": corr_result.method,
+                        "columns_analyzed": corr_result.columns_analyzed,
+                        "sample_size": corr_result.sample_size,
+                    }
+
+                    # Add insights about significant correlations
+                    for sig_corr in corr_result.significant_correlations:
+                        col1 = sig_corr["column1"]
+                        col2 = sig_corr["column2"]
+                        corr_val = sig_corr["correlation"]
+                        strength = sig_corr["strength"]
+                        direction = sig_corr["direction"]
+
+                        insights.append(
+                            f"Found {strength} {direction} correlation ({corr_val:.2f}) "
+                            f"between {col1} and {col2}"
+                        )
+
+                    logger.info(
+                        f"Correlation analysis completed: "
+                        f"{len(corr_result.significant_correlations)} significant correlations found"
+                    )
+
+                except Exception as e:
+                    logger.error(f"Correlation analysis failed: {e}")
+                    enhanced_results["results"]["correlation_analysis"] = {
+                        "error": str(e)
+                    }
+
+            # Add more tools here as we implement them
+            # elif tool_name == "filter_data":
+            #     ...
+            # elif tool_name == "aggregate_data":
+            #     ...
+
+        return {
+            "enhanced_analysis": enhanced_results,
+            "insights": insights,
+        }
+
+    except Exception as e:
+        logger.error(f"Enhanced analysis node failed: {e}")
+        return {
+            "enhanced_analysis": None,
+            "errors": [f"Enhanced analysis failed: {str(e)}"],
+        }
