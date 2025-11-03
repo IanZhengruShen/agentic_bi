@@ -1,4 +1,4 @@
-.PHONY: help build up down restart logs clean test lint format db-migrate db-reset
+.PHONY: help build up down restart logs clean test lint format db-migrate db-migrate-create db-migrate-auto db-migrate-down db-migrate-history db-migrate-current db-reset
 
 # Default target
 help:
@@ -20,7 +20,11 @@ help:
 	@echo ""
 	@echo "Database Commands:"
 	@echo "  make db-shell           - Access PostgreSQL shell"
-	@echo "  make db-migrate         - Run database migrations"
+	@echo "  make db-migrate         - Run database migrations (upgrade to head)"
+	@echo "  make db-migrate-create  - Create a new migration"
+	@echo "  make db-migrate-down    - Rollback one migration"
+	@echo "  make db-migrate-history - Show migration history"
+	@echo "  make db-migrate-current - Show current migration revision"
 	@echo "  make db-reset           - Reset database (WARNING: deletes data)"
 	@echo ""
 	@echo "Development Commands:"
@@ -100,10 +104,40 @@ ps:
 # ============================================
 
 db-shell:
+	@echo "Connecting to PostgreSQL..."
 	docker-compose exec postgres psql -U $${POSTGRES_USER:-admin} -d $${POSTGRES_DB:-agentic_bi}
 
 db-migrate:
-	docker-compose exec backend alembic upgrade head
+	@echo "Running database migrations..."
+	docker-compose exec backend uv run alembic upgrade head
+	@echo "✓ Migrations complete"
+
+db-migrate-create:
+	@read -p "Migration name: " name; \
+	echo "Creating migration: $$name"; \
+	docker-compose exec backend uv run alembic revision -m "$$name"
+
+db-migrate-auto:
+	@read -p "Migration name: " name; \
+	echo "Auto-generating migration: $$name"; \
+	docker-compose exec backend uv run alembic revision --autogenerate -m "$$name"
+
+db-migrate-down:
+	@echo "⚠ Rolling back one migration..."
+	@read -p "Are you sure? [y/N] " -n 1 -r; \
+	echo; \
+	if [[ $$REPLY =~ ^[Yy]$$ ]]; then \
+		docker-compose exec backend uv run alembic downgrade -1; \
+		echo "✓ Rollback complete"; \
+	fi
+
+db-migrate-history:
+	@echo "Migration history:"
+	docker-compose exec backend uv run alembic history --verbose
+
+db-migrate-current:
+	@echo "Current migration revision:"
+	docker-compose exec backend uv run alembic current
 
 db-reset:
 	@echo "⚠ WARNING: This will delete all data!"
@@ -111,9 +145,11 @@ db-reset:
 	echo; \
 	if [[ $$REPLY =~ ^[Yy]$$ ]]; then \
 		docker-compose down -v; \
-		docker-compose up -d postgres; \
+		docker-compose up -d postgres redis; \
 		sleep 5; \
-		docker-compose up -d; \
+		docker-compose up -d backend; \
+		sleep 3; \
+		docker-compose exec backend uv run alembic upgrade head; \
 		echo "✓ Database reset complete"; \
 	fi
 

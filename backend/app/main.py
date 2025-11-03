@@ -4,7 +4,9 @@ Main FastAPI Application Entry Point
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-import os
+
+from app.core.config import settings
+from app.api.v1.router import api_router
 
 from app.api import agents_router
 
@@ -18,18 +20,16 @@ app = FastAPI(
 )
 
 # Configure CORS
-cors_origins = os.getenv("CORS_ORIGINS", "http://localhost:3000").split(",")
-
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=cors_origins,
+    allow_origins=settings.cors_origins_list,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Include routers
-app.include_router(agents_router)
+# Include API v1 router
+app.include_router(api_router, prefix="/api/v1")
 
 
 @app.get("/")
