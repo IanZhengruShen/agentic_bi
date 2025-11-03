@@ -6,10 +6,12 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import os
 
+from app.api import agents_router
+
 # Create FastAPI app
 app = FastAPI(
     title="Agentic BI Platform API",
-    description="AI-powered data analysis and visualization platform",
+    description="AI-powered data analysis and visualization platform with LangGraph agents",
     version="0.1.0",
     docs_url="/docs",
     redoc_url="/redoc",
@@ -26,6 +28,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Include routers
+app.include_router(agents_router)
+
 
 @app.get("/")
 async def root():
@@ -34,6 +39,12 @@ async def root():
         "message": "Agentic BI Platform API",
         "version": "0.1.0",
         "status": "running",
+        "features": [
+            "LangGraph-based agent workflows",
+            "Human-in-the-loop interventions",
+            "Natural language to SQL",
+            "Automated data analysis",
+        ],
     }
 
 
