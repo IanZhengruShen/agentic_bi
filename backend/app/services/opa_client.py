@@ -24,8 +24,8 @@ class OPAClient:
     """
 
     def __init__(self, opa_url: str = None, timeout: int = None):
-        self.opa_url = (opa_url or settings.OPA_URL).rstrip("/")
-        self.timeout = timeout or settings.OPA_TIMEOUT
+        self.opa_url = (opa_url or settings.opa.opa_url).rstrip("/")
+        self.timeout = timeout or settings.opa.opa_timeout
 
     async def check_permission(
         self,

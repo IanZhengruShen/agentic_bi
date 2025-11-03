@@ -679,7 +679,7 @@ async def enhanced_analysis_node(
     Returns:
         State updates with enhanced_analysis results
     """
-    from app.tools.statistical_tools import correlation_analysis
+    from app.tools.statistical_tools import correlation_analysis, trend_analysis
 
     logger.info("Enhanced analysis node: Determining additional analysis needed")
 
@@ -704,11 +704,14 @@ What ADDITIONAL analysis would help answer the user's question better?
 
 Available tools:
 - correlation_analysis: Find relationships between numeric columns (use when user asks about correlation, relationships, or dependencies)
+- trend_analysis: Detect trends in time series data (use when user asks about growth, decline, trends, changes over time)
 
 Think about:
 1. Did the user ask about relationships or correlations?
-2. Are there numeric columns that might be related?
-3. Would understanding correlations provide valuable insights?
+2. Did the user ask about trends, growth, or changes over time?
+3. Are there numeric columns that might be related?
+4. Is there temporal or sequential data?
+5. Would understanding trends or correlations provide valuable insights?
 
 Respond with JSON only:
 {{
@@ -718,6 +721,8 @@ Respond with JSON only:
 
 Examples:
 - User asks "Is there correlation between X and Y?" -> {{"tools_to_run": ["correlation_analysis"], "reasoning": "User explicitly asked about correlation"}}
+- User asks "Are sales growing over time?" -> {{"tools_to_run": ["trend_analysis"], "reasoning": "User asked about growth trend"}}
+- User asks "Show revenue trends and how they relate to marketing spend" -> {{"tools_to_run": ["trend_analysis", "correlation_analysis"], "reasoning": "User wants both trend and correlation analysis"}}
 - User asks "Show me all users" -> {{"tools_to_run": [], "reasoning": "Simple data retrieval, no additional analysis needed"}}
 """
 
@@ -802,7 +807,39 @@ Examples:
                         "error": str(e)
                     }
 
+            elif tool_name == "trend_analysis":
+                try:
+                    logger.info("Running trend_analysis")
+                    trend_result = await trend_analysis(data)
+
+                    enhanced_results["results"]["trend_analysis"] = {
+                        "trend_direction": trend_result.trend_direction,
+                        "trend_strength": trend_result.trend_strength,
+                        "confidence": trend_result.confidence,
+                        "slope": trend_result.slope,
+                        "r_squared": trend_result.r_squared,
+                        "time_column": trend_result.time_column,
+                        "value_column": trend_result.value_column,
+                        "sample_size": trend_result.sample_size,
+                    }
+
+                    # Add insights from trend analysis
+                    insights.extend(trend_result.insights)
+
+                    logger.info(
+                        f"Trend analysis completed: {trend_result.trend_direction} trend "
+                        f"(strength: {trend_result.trend_strength:.2f})"
+                    )
+
+                except Exception as e:
+                    logger.error(f"Trend analysis failed: {e}")
+                    enhanced_results["results"]["trend_analysis"] = {
+                        "error": str(e)
+                    }
+
             # Add more tools here as we implement them
+            # elif tool_name == "outlier_detection":
+            #     ...
             # elif tool_name == "filter_data":
             #     ...
             # elif tool_name == "aggregate_data":

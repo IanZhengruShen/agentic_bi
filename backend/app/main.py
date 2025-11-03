@@ -7,8 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import settings
 from app.api.v1.router import api_router
-
-from app.api import agents_router
+from app.api import agents_router, visualizations_router, style_profiles_router
 
 # Create FastAPI app
 app = FastAPI(
@@ -22,14 +21,19 @@ app = FastAPI(
 # Configure CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.cors_origins_list,
+    allow_origins=settings.app.cors_origins_list,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Include API v1 router
+# Include API v1 router (authentication)
 app.include_router(api_router, prefix="/api/v1")
+
+# Include agent routers
+app.include_router(agents_router)
+app.include_router(visualizations_router)
+app.include_router(style_profiles_router)
 
 
 @app.get("/")
@@ -44,6 +48,8 @@ async def root():
             "Human-in-the-loop interventions",
             "Natural language to SQL",
             "Automated data analysis",
+            "AI-powered visualizations with Plotly",
+            "Custom style profiles and branding",
         ],
     }
 
