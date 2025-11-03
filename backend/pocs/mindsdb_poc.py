@@ -54,7 +54,8 @@ class MindsDBClient:
             api_url: Base URL for MindsDB API
         """
         self.api_url = api_url
-        self.client = httpx.Client(timeout=30.0)
+        # Configure client to follow redirects and use longer timeout
+        self.client = httpx.Client(timeout=30.0, follow_redirects=True)
 
     def __enter__(self):
         """Context manager entry."""
@@ -111,27 +112,48 @@ class MindsDBClient:
 
     def get_databases(self) -> Dict[str, Any]:
         """
-        Retrieve list of databases from MindsDB.
+        Retrieve list of databases from MindsDB using REST API.
+
+        Uses GET /api/databases endpoint.
 
         Returns:
             Dict containing:
             - success: bool
-            - databases: List of database names
+            - databases: List of database objects
             - error: str (if any)
         """
-        query = "SHOW DATABASES"
-        result = self.execute_query(query)
+        result: Dict[str, Any] = {
+            "success": False,
+            "databases": None,
+            "error": None,
+        }
 
-        if result["success"]:
-            # Extract database names from result
-            databases = [row.get("Database", row.get("database")) for row in result.get("data", [])]
-            result["databases"] = databases
+        try:
+            # MindsDB requires trailing slash
+            endpoint = f"{self.api_url}/api/databases/"
+            response = self.client.get(endpoint)
+
+            if response.status_code == 200:
+                data = response.json()
+                result["success"] = True
+                result["databases"] = data
+            else:
+                result["error"] = f"HTTP {response.status_code}: {response.text}"
+
+        except httpx.TimeoutException:
+            result["error"] = "Request timeout"
+        except httpx.RequestError as e:
+            result["error"] = f"Request error: {str(e)}"
+        except Exception as e:
+            result["error"] = f"Unexpected error: {str(e)}"
 
         return result
 
     def get_tables(self, database: str = "mindsdb") -> Dict[str, Any]:
         """
-        Retrieve list of tables from a specific database.
+        Retrieve list of tables from a specific database using REST API.
+
+        Uses GET /api/tables/{database_name} endpoint.
 
         Args:
             database: Database name to query
@@ -139,28 +161,49 @@ class MindsDBClient:
         Returns:
             Dict containing:
             - success: bool
-            - tables: List of table names
+            - tables: List of table objects
             - error: str (if any)
         """
-        query = f"SHOW TABLES FROM {database}"
-        result = self.execute_query(query)
+        result: Dict[str, Any] = {
+            "success": False,
+            "tables": None,
+            "error": None,
+        }
 
-        if result["success"]:
-            # Extract table names from result
-            tables = [row.get("Tables_in_" + database, row.get("table_name")) for row in result.get("data", [])]
-            result["tables"] = tables
+        try:
+            # MindsDB requires trailing slash
+            endpoint = f"{self.api_url}/api/tables/{database}/"
+            response = self.client.get(endpoint)
+
+            if response.status_code == 200:
+                data = response.json()
+                result["success"] = True
+                result["tables"] = data
+            else:
+                result["error"] = f"HTTP {response.status_code}: {response.text}"
+
+        except httpx.TimeoutException:
+            result["error"] = "Request timeout"
+        except httpx.RequestError as e:
+            result["error"] = f"Request error: {str(e)}"
+        except Exception as e:
+            result["error"] = f"Unexpected error: {str(e)}"
 
         return result
 
     def health_check(self) -> bool:
         """
-        Check if MindsDB is accessible.
+        Check if MindsDB is accessible by trying to list databases.
+
+        MindsDB doesn't have a dedicated health check endpoint,
+        so we use GET /api/databases as a health check.
 
         Returns:
             True if accessible, False otherwise
         """
         try:
-            response = self.client.get(f"{self.api_url}/api/status")
+            # MindsDB requires trailing slash
+            response = self.client.get(f"{self.api_url}/api/databases/")
             return response.status_code == 200
         except Exception:
             return False
@@ -182,28 +225,52 @@ def verify_mindsdb_connection(config: Dict[str, str]) -> Dict[str, Any]:
 
     try:
         with MindsDBClient(config["api_url"]) as client:
-            # Test 1: Health check
+            # Test 1: Health check (using list databases endpoint)
             result["health_check"] = client.health_check()
 
             if not result["health_check"]:
-                result["error"] = "MindsDB health check failed"
+                result["error"] = "MindsDB health check failed - cannot reach API"
                 return result
 
-            # Test 2: Get databases
+            # Test 2: Get databases using REST API
             db_result = client.get_databases()
             if db_result["success"]:
-                result["databases"] = db_result.get("databases", [])
+                databases = db_result.get("databases", [])
+                result["databases"] = databases
+
+                # Extract database names for display
+                if isinstance(databases, list):
+                    result["database_names"] = [
+                        db.get("name") if isinstance(db, dict) else str(db)
+                        for db in databases
+                    ]
             else:
                 result["error"] = db_result["error"]
                 return result
 
-            # Test 3: Get tables from mindsdb database
-            table_result = client.get_tables("mindsdb")
+            # Test 3: Get tables from first available database or mindsdb
+            target_db = "mindsdb"
+            if result.get("database_names"):
+                # Use first database or 'mindsdb' if it exists
+                target_db = result["database_names"][0]
+                if "mindsdb" in result["database_names"]:
+                    target_db = "mindsdb"
+
+            table_result = client.get_tables(target_db)
             if table_result["success"]:
-                result["tables"] = table_result.get("tables", [])
+                tables = table_result.get("tables", [])
+                result["tables"] = tables
+
+                # Extract table names for display
+                if isinstance(tables, list):
+                    result["table_names"] = [
+                        tbl.get("name") if isinstance(tbl, dict) else str(tbl)
+                        for tbl in tables
+                    ]
             else:
-                # Tables query might fail if database is empty, which is OK
+                # Tables query might fail if database is empty, which is OK for POC
                 result["tables"] = []
+                result["table_names"] = []
 
     except Exception as e:
         result["error"] = f"Connection error: {str(e)}"
@@ -239,17 +306,19 @@ def main():
 
         print(f"   ✓ Health check: {'PASSED' if result['health_check'] else 'FAILED'}")
 
-        print(f"\n3. Database Discovery:")
-        if result["databases"]:
-            for db in result["databases"]:
+        print(f"\n3. Database Discovery (GET /api/databases):")
+        if result.get("database_names"):
+            for db in result["database_names"]:
                 print(f"   - {db}")
+            print(f"   Total: {len(result['database_names'])} database(s)")
         else:
             print("   (No databases found)")
 
-        print(f"\n4. Table Discovery (mindsdb database):")
-        if result["tables"]:
-            for table in result["tables"]:
+        print(f"\n4. Table Discovery (GET /api/tables/{{database}}):")
+        if result.get("table_names"):
+            for table in result["table_names"]:
                 print(f"   - {table}")
+            print(f"   Total: {len(result['table_names'])} table(s)")
         else:
             print("   (No tables found or database is empty)")
 

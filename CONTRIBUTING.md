@@ -137,10 +137,90 @@ else:
 
 ## Testing
 
-- Write tests for all new code
-- Ensure all tests pass locally before pushing
-- Add integration tests for user-facing features
-- Aim for meaningful test coverage, not just high percentages
+**⚠️ All PRs must follow our [Testing Strategy](docs/TESTING_STRATEGY.md)**
+
+### Testing Requirements
+
+Every PR must include:
+
+1. **Unit Tests** (≥85% coverage)
+   - Test individual functions and classes in isolation
+   - Use mocks for external dependencies
+   - Fast execution (< 30 seconds)
+   ```bash
+   pytest -m unit --cov=app
+   ```
+
+2. **Integration Tests** (where applicable)
+   - Test interactions with external services
+   - Verify service contracts
+   - Medium execution time (< 2 minutes)
+   ```bash
+   pytest -m integration
+   ```
+
+3. **E2E Tests** (for user-facing features)
+   - Test complete workflows
+   - Cover happy path and error scenarios
+   - Slow execution (< 5 minutes)
+   ```bash
+   pytest -m e2e
+   ```
+
+### Running Tests Locally
+
+```bash
+# Run all tests
+pytest
+
+# Run only unit tests (fast feedback)
+pytest -m unit
+
+# Run with coverage report
+pytest --cov=app --cov-report=html
+
+# Run specific test file
+pytest tests/unit/test_llm_client.py
+
+# Run and stop on first failure
+pytest -x
+```
+
+### Test Organization
+
+```
+tests/
+├── unit/              # Fast, isolated tests (60-70% of tests)
+├── integration/       # Service interaction tests (20-30%)
+└── e2e/              # Complete workflow tests (10-15%)
+```
+
+### Coverage Requirements
+
+- **Core Services**: ≥90% unit test coverage
+- **Agents**: ≥85% unit test coverage
+- **API Endpoints**: ≥80% unit test coverage
+- **Overall**: ≥80% test coverage
+
+### Test Naming Convention
+
+Use descriptive names: `test_<what>_<condition>_<expected_result>`
+
+**Examples**:
+- `test_create_user_with_valid_data_returns_user()`
+- `test_login_with_invalid_password_raises_error()`
+- `test_workflow_execution_with_timeout_sends_event()`
+
+### Before Submitting PR
+
+- [ ] All tests pass locally
+- [ ] Coverage meets requirements (≥80%)
+- [ ] Tests follow naming conventions
+- [ ] No flaky or skipped tests
+- [ ] Integration tests added for service interactions
+- [ ] E2E tests added for new features
+
+For detailed testing guidelines, see [Testing Strategy](docs/TESTING_STRATEGY.md).
 
 ## Code Style
 
@@ -202,7 +282,11 @@ git checkout pr-branch-name
 
 ## Resources
 
+- [Testing Strategy](docs/TESTING_STRATEGY.md) - Comprehensive testing guidelines
 - [Branch Protection Guidelines](.github/BRANCH_PROTECTION.md)
+- [Pull Request Template](.github/PULL_REQUEST_TEMPLATE.md)
+- [Technical Specifications](prp_files/technical_specifications.md)
+- [Implementation Plan](prp_files/implementation_plan.md)
 - [Trunk-Based Development](https://trunkbaseddevelopment.com/)
 
 ---
