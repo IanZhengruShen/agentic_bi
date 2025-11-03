@@ -140,15 +140,6 @@ Workflow completed successfully!
             "messages": ["Response formatted"]
         }
 
-    # Node 4: Handle Error
-    def handle_error(state: WorkflowState) -> WorkflowState:
-        """Handle any errors in the workflow."""
-        return {
-            **state,
-            "error": "An error occurred in the workflow",
-            "messages": ["Error handled"]
-        }
-
     # Create workflow graph
     workflow = StateGraph(WorkflowState)
 
@@ -156,14 +147,12 @@ Workflow completed successfully!
     workflow.add_node("classify_intent", classify_intent)
     workflow.add_node("generate_sql", generate_sql)
     workflow.add_node("format_response", format_response)
-    workflow.add_node("handle_error", handle_error)
 
-    # Define edges
+    # Define edges (simple linear flow for POC)
     workflow.set_entry_point("classify_intent")
     workflow.add_edge("classify_intent", "generate_sql")
     workflow.add_edge("generate_sql", "format_response")
     workflow.add_edge("format_response", END)
-    workflow.add_edge("handle_error", END)
 
     return workflow
 
