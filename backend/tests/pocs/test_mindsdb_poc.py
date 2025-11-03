@@ -84,7 +84,7 @@ class TestMindsDBPOC:
 
     @patch("mindsdb_poc.httpx.Client")
     def test_mindsdb_client_health_check(self, mock_client_class):
-        """Test health check functionality."""
+        """Test health check functionality using databases endpoint."""
         mock_response = Mock()
         mock_response.status_code = 200
 
@@ -96,6 +96,8 @@ class TestMindsDBPOC:
         result = client.health_check()
 
         assert result is True
+        # Verify it called /api/databases instead of /api/status
+        mock_client.get.assert_called_with("https://test.mindsdb.com/api/databases")
 
     @patch("mindsdb_poc.MindsDBClient")
     def test_mindsdb_connection_success(self, mock_client_class):
@@ -106,11 +108,11 @@ class TestMindsDBPOC:
         mock_client.health_check.return_value = True
         mock_client.get_databases.return_value = {
             "success": True,
-            "databases": ["mindsdb", "files"]
+            "databases": [{"name": "mindsdb"}, {"name": "files"}]
         }
         mock_client.get_tables.return_value = {
             "success": True,
-            "tables": ["models", "predictors"]
+            "tables": [{"name": "models"}, {"name": "predictors"}]
         }
         mock_client_class.return_value = mock_client
 
@@ -118,6 +120,7 @@ class TestMindsDBPOC:
         result = verify_mindsdb_connection(config)
 
         assert result["health_check"] is True
-        assert "mindsdb" in result["databases"]
+        assert result.get("database_names") is not None
+        assert "mindsdb" in result["database_names"]
         assert result["tables"] is not None
         assert result["error"] is None
