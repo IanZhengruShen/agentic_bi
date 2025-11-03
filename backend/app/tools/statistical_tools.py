@@ -311,3 +311,335 @@ def _interpret_correlation(abs_corr: float) -> str:
         return "weak"
     else:
         return "very weak"
+
+
+# ============================================
+# Result Models - Trend Analysis
+# ============================================
+
+
+class TrendResult(BaseModel):
+    """Result from trend analysis."""
+
+    trend_direction: str  # increasing, decreasing, stable
+    trend_strength: float  # 0.0-1.0 (how strong is the trend)
+    confidence: float  # 0.0-1.0 (confidence in the trend)
+    slope: Optional[float] = None  # Rate of change
+    r_squared: Optional[float] = None  # Goodness of fit for linear regression
+    time_column: Optional[str] = None  # Column used for time/sequence
+    value_column: Optional[str] = None  # Column used for values
+    sample_size: int
+    insights: List[str] = Field(default_factory=list)
+    warnings: List[str] = Field(default_factory=list)
+
+
+# ============================================
+# Tool: trend_analysis
+# ============================================
+
+
+async def trend_analysis(
+    data: List[Dict[str, Any]],
+    time_column: Optional[str] = None,
+    value_column: Optional[str] = None,
+    method: Literal["linear", "moving_average"] = "linear",
+) -> TrendResult:
+    """
+    Detect trends in time series or sequential data.
+
+    Useful for understanding patterns over time, growth/decline analysis.
+    Example: "Is our revenue growing or declining over time?"
+
+    Args:
+        data: Query results as list of dictionaries
+        time_column: Column to use for time/sequence (None = auto-detect)
+        value_column: Column to use for values (None = auto-detect first numeric)
+        method: Trend detection method ('linear' for regression, 'moving_average' for smoothing)
+
+    Returns:
+        TrendResult with trend direction, strength, and insights
+
+    Raises:
+        Exception: If trend analysis fails
+    """
+    logger.info(f"Computing trend analysis for {len(data)} rows using {method} method")
+
+    try:
+        if not data or len(data) < 3:
+            return TrendResult(
+                trend_direction="unknown",
+                trend_strength=0.0,
+                confidence=0.0,
+                sample_size=len(data) if data else 0,
+                warnings=["Need at least 3 data points for trend analysis"],
+            )
+
+        # Auto-detect time and value columns if not specified
+        if time_column is None or value_column is None:
+            detected_columns = _detect_time_value_columns(data)
+            time_column = time_column or detected_columns["time_column"]
+            value_column = value_column or detected_columns["value_column"]
+
+        if not time_column or not value_column:
+            return TrendResult(
+                trend_direction="unknown",
+                trend_strength=0.0,
+                confidence=0.0,
+                sample_size=len(data),
+                warnings=["Could not detect appropriate time and value columns"],
+            )
+
+        # Extract and prepare data
+        time_values = []
+        numeric_values = []
+
+        for i, row in enumerate(data):
+            time_val = row.get(time_column)
+            value_val = row.get(value_column)
+
+            # Convert time to numeric (use index if datetime parsing fails)
+            if time_val is not None:
+                time_numeric = _to_numeric(time_val)
+                if time_numeric is None:
+                    time_numeric = float(i)  # Use row index as fallback
+                time_values.append(time_numeric)
+            else:
+                time_values.append(float(i))
+
+            # Convert value to numeric
+            numeric_val = _to_numeric(value_val)
+            if numeric_val is not None:
+                numeric_values.append(numeric_val)
+
+        if len(numeric_values) < 3:
+            return TrendResult(
+                trend_direction="unknown",
+                trend_strength=0.0,
+                confidence=0.0,
+                time_column=time_column,
+                value_column=value_column,
+                sample_size=len(data),
+                warnings=["Insufficient numeric data for trend analysis"],
+            )
+
+        # Align arrays (only use rows with valid numeric values)
+        aligned_data = [(t, v) for t, v in zip(time_values, numeric_values)]
+        time_values = [t for t, v in aligned_data]
+        numeric_values = [v for t, v in aligned_data]
+
+        # Perform trend analysis based on method
+        if method == "linear":
+            result = _linear_trend_analysis(time_values, numeric_values)
+        else:  # moving_average
+            result = _moving_average_trend_analysis(numeric_values)
+
+        # Add metadata
+        result["time_column"] = time_column
+        result["value_column"] = value_column
+        result["sample_size"] = len(numeric_values)
+
+        # Generate insights
+        insights = []
+        direction = result["trend_direction"]
+        strength = result["trend_strength"]
+
+        if direction == "increasing":
+            insights.append(
+                f"{value_column} shows an {direction} trend "
+                f"({'strong' if strength > 0.7 else 'moderate' if strength > 0.4 else 'weak'} pattern)"
+            )
+        elif direction == "decreasing":
+            insights.append(
+                f"{value_column} shows a {direction} trend "
+                f"({'strong' if strength > 0.7 else 'moderate' if strength > 0.4 else 'weak'} pattern)"
+            )
+        else:
+            insights.append(f"{value_column} remains relatively stable over time")
+
+        if result.get("slope"):
+            insights.append(f"Rate of change: {result['slope']:.4f} per time unit")
+
+        result["insights"] = insights
+
+        logger.info(
+            f"Trend analysis completed: {direction} trend "
+            f"(strength: {strength:.2f}, confidence: {result['confidence']:.2f})"
+        )
+
+        return TrendResult(**result)
+
+    except Exception as e:
+        logger.error(f"Trend analysis failed: {e}")
+        raise
+
+
+# ============================================
+# Helper Functions - Trend Analysis
+# ============================================
+
+
+def _detect_time_value_columns(data: List[Dict[str, Any]]) -> Dict[str, Optional[str]]:
+    """
+    Auto-detect time and value columns from data.
+
+    Args:
+        data: List of dictionaries
+
+    Returns:
+        Dict with 'time_column' and 'value_column'
+    """
+    if not data:
+        return {"time_column": None, "value_column": None}
+
+    columns = list(data[0].keys())
+
+    # Look for time-related column names
+    time_keywords = ["time", "date", "timestamp", "period", "year", "month", "day", "created", "updated"]
+    time_column = None
+    for col in columns:
+        col_lower = col.lower()
+        if any(keyword in col_lower for keyword in time_keywords):
+            time_column = col
+            break
+
+    # If no time column found, use first column
+    if not time_column and columns:
+        time_column = columns[0]
+
+    # Look for value column (first numeric column that's not the time column)
+    value_column = None
+    for col in columns:
+        if col == time_column:
+            continue
+        # Check if column has numeric values
+        values = [row.get(col) for row in data[:10]]  # Sample first 10 rows
+        if values and _infer_data_type(values) == "numeric":
+            value_column = col
+            break
+
+    return {"time_column": time_column, "value_column": value_column}
+
+
+def _linear_trend_analysis(
+    time_values: List[float],
+    numeric_values: List[float]
+) -> Dict[str, Any]:
+    """
+    Perform linear regression trend analysis.
+
+    Args:
+        time_values: Time/sequence values
+        numeric_values: Numeric values to analyze
+
+    Returns:
+        Dict with trend_direction, trend_strength, confidence, slope, r_squared
+    """
+    n = len(time_values)
+
+    # Calculate means
+    mean_time = statistics.mean(time_values)
+    mean_value = statistics.mean(numeric_values)
+
+    # Calculate slope (β1)
+    numerator = sum((t - mean_time) * (v - mean_value) for t, v in zip(time_values, numeric_values))
+    denominator = sum((t - mean_time) ** 2 for t in time_values)
+
+    slope = numerator / denominator if denominator != 0 else 0.0
+
+    # Calculate R-squared
+    predicted_values = [mean_value + slope * (t - mean_time) for t in time_values]
+    ss_res = sum((v - p) ** 2 for v, p in zip(numeric_values, predicted_values))
+    ss_tot = sum((v - mean_value) ** 2 for v in numeric_values)
+    r_squared = 1 - (ss_res / ss_tot) if ss_tot != 0 else 0.0
+
+    # Ensure R-squared is between 0 and 1
+    r_squared = max(0.0, min(1.0, r_squared))
+
+    # Determine trend direction
+    if abs(slope) < 0.01:  # Very small slope
+        trend_direction = "stable"
+    elif slope > 0:
+        trend_direction = "increasing"
+    else:
+        trend_direction = "decreasing"
+
+    # Trend strength based on R-squared
+    trend_strength = r_squared
+
+    # Confidence based on sample size and R-squared
+    confidence = r_squared * min(1.0, n / 30)  # Higher confidence with more data points
+
+    return {
+        "trend_direction": trend_direction,
+        "trend_strength": float(trend_strength),
+        "confidence": float(confidence),
+        "slope": float(slope),
+        "r_squared": float(r_squared),
+        "warnings": [],
+    }
+
+
+def _moving_average_trend_analysis(
+    numeric_values: List[float],
+    window_size: int = 3
+) -> Dict[str, Any]:
+    """
+    Perform moving average trend analysis.
+
+    Args:
+        numeric_values: Numeric values to analyze
+        window_size: Window size for moving average
+
+    Returns:
+        Dict with trend_direction, trend_strength, confidence
+    """
+    if len(numeric_values) < window_size:
+        return {
+            "trend_direction": "unknown",
+            "trend_strength": 0.0,
+            "confidence": 0.0,
+            "warnings": [f"Need at least {window_size} points for moving average"],
+        }
+
+    # Calculate moving averages
+    moving_avgs = []
+    for i in range(len(numeric_values) - window_size + 1):
+        window = numeric_values[i:i + window_size]
+        moving_avgs.append(statistics.mean(window))
+
+    # Compare first and last moving average
+    if len(moving_avgs) < 2:
+        return {
+            "trend_direction": "stable",
+            "trend_strength": 0.0,
+            "confidence": 0.5,
+            "warnings": [],
+        }
+
+    first_avg = moving_avgs[0]
+    last_avg = moving_avgs[-1]
+    overall_mean = statistics.mean(numeric_values)
+
+    # Calculate relative change
+    relative_change = (last_avg - first_avg) / overall_mean if overall_mean != 0 else 0.0
+
+    # Determine trend
+    if abs(relative_change) < 0.05:  # Less than 5% change
+        trend_direction = "stable"
+        trend_strength = 0.0
+    elif relative_change > 0:
+        trend_direction = "increasing"
+        trend_strength = min(1.0, abs(relative_change) * 5)  # Scale to 0-1
+    else:
+        trend_direction = "decreasing"
+        trend_strength = min(1.0, abs(relative_change) * 5)
+
+    # Confidence based on consistency of trend
+    confidence = min(1.0, len(moving_avgs) / 10)  # Higher with more data points
+
+    return {
+        "trend_direction": trend_direction,
+        "trend_strength": float(trend_strength),
+        "confidence": float(confidence),
+        "warnings": [],
+    }

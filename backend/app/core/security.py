@@ -94,7 +94,7 @@ def create_access_token(data: Dict[str, Any], expires_delta: Optional[timedelta]
     if expires_delta:
         expire = datetime.utcnow() + expires_delta
     else:
-        expire = datetime.utcnow() + timedelta(minutes=settings.JWT_EXPIRATION_MINUTES)
+        expire = datetime.utcnow() + timedelta(minutes=settings.jwt.jwt_expiration_minutes)
 
     to_encode.update({
         "exp": expire,
@@ -102,7 +102,7 @@ def create_access_token(data: Dict[str, Any], expires_delta: Optional[timedelta]
         "type": "access"
     })
 
-    return jwt.encode(to_encode, settings.JWT_SECRET, algorithm=settings.JWT_ALGORITHM)
+    return jwt.encode(to_encode, settings.jwt.jwt_secret, algorithm=settings.jwt.jwt_algorithm)
 
 
 def create_refresh_token(data: Dict[str, Any]) -> str:
@@ -116,7 +116,7 @@ def create_refresh_token(data: Dict[str, Any]) -> str:
         str: Encoded JWT refresh token
     """
     to_encode = data.copy()
-    expire = datetime.utcnow() + timedelta(days=settings.JWT_REFRESH_EXPIRATION_DAYS)
+    expire = datetime.utcnow() + timedelta(days=settings.jwt.jwt_refresh_expiration_days)
 
     to_encode.update({
         "exp": expire,
@@ -124,7 +124,7 @@ def create_refresh_token(data: Dict[str, Any]) -> str:
         "type": "refresh"
     })
 
-    return jwt.encode(to_encode, settings.JWT_SECRET, algorithm=settings.JWT_ALGORITHM)
+    return jwt.encode(to_encode, settings.jwt.jwt_secret, algorithm=settings.jwt.jwt_algorithm)
 
 
 def decode_token(token: str) -> Dict[str, Any]:
@@ -141,7 +141,7 @@ def decode_token(token: str) -> Dict[str, Any]:
         HTTPException: If token is invalid or expired
     """
     try:
-        payload = jwt.decode(token, settings.JWT_SECRET, algorithms=[settings.JWT_ALGORITHM])
+        payload = jwt.decode(token, settings.jwt.jwt_secret, algorithms=[settings.jwt.jwt_algorithm])
         return payload
     except JWTError as e:
         raise HTTPException(

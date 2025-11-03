@@ -50,6 +50,9 @@ dependencies = [
     # Data Processing
     "pandas==2.1.4",
     "numpy==1.26.3",
+    # Visualization
+    "plotly==5.18.0",
+    "kaleido==0.2.1",
 ]
 
 [project.optional-dependencies]

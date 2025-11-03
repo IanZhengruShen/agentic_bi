@@ -1,69 +1,4 @@
 """
-Application configuration.
-"""
-from pydantic_settings import BaseSettings
-from typing import List
-import os
-
-
-class Settings(BaseSettings):
-    """Application settings."""
-
-    # Application
-    ENV: str = "development"
-    DEBUG: bool = True
-    LOG_LEVEL: str = "INFO"
-
-    # Database
-    DATABASE_URL: str = "postgresql+asyncpg://admin:devpassword123@postgres:5432/agentic_bi"
-
-    # Redis
-    REDIS_URL: str = "redis://:devredispass@redis:6379/0"
-
-    # JWT Settings
-    JWT_SECRET: str = "dev-secret-change-in-production"
-    JWT_ALGORITHM: str = "HS256"
-    JWT_EXPIRATION_MINUTES: int = 1440  # 24 hours
-    JWT_REFRESH_EXPIRATION_DAYS: int = 7
-
-    # External Services
-    AZURE_OPENAI_API_KEY: str = ""
-    AZURE_OPENAI_ENDPOINT: str = ""
-    AZURE_OPENAI_DEPLOYMENT: str = "gpt-4"
-    AZURE_OPENAI_API_VERSION: str = "2023-05-15"
-
-    MINDSDB_API_URL: str = ""
-
-    # OPA Settings (External Authorization Service)
-    OPA_URL: str = "http://opa-service:8181"
-    OPA_TIMEOUT: int = 5
-
-    # Langfuse Settings
-    LANGFUSE_HOST: str = ""
-    LANGFUSE_PUBLIC_KEY: str = ""
-    LANGFUSE_SECRET_KEY: str = ""
-
-    # CORS Settings
-    CORS_ORIGINS: str = "http://localhost:3000,http://localhost:80"
-
-    @property
-    def cors_origins_list(self) -> List[str]:
-        """Parse CORS origins from comma-separated string."""
-        return [origin.strip() for origin in self.CORS_ORIGINS.split(",")]
-
-    # Rate Limiting
-    RATE_LIMIT_PER_MINUTE: int = 100
-    RATE_LIMIT_BURST: int = 200
-
-    class Config:
-        env_file = ".env"
-        case_sensitive = True
-        extra = "allow"  # Allow extra fields from environment
-
-
-# Global settings instance
-settings = Settings()
-"""
 Core application configuration using Pydantic Settings.
 
 This module centralizes all configuration for the application including:
@@ -121,8 +56,8 @@ class RedisSettings(BaseSettings):
 class AzureOpenAISettings(BaseSettings):
     """Azure OpenAI configuration."""
 
-    azure_openai_api_key: str = Field(..., description="Azure OpenAI API key")
-    azure_openai_endpoint: str = Field(..., description="Azure OpenAI endpoint URL")
+    azure_openai_api_key: str = Field(default="", description="Azure OpenAI API key")
+    azure_openai_endpoint: str = Field(default="", description="Azure OpenAI endpoint URL")
     azure_openai_deployment: str = Field(default="gpt-4", description="Deployment name")
     azure_openai_api_version: str = Field(default="2023-05-15", description="API version")
 
@@ -144,7 +79,7 @@ class AzureOpenAISettings(BaseSettings):
 class MindsDBSettings(BaseSettings):
     """MindsDB configuration."""
 
-    mindsdb_api_url: str = Field(..., description="MindsDB API URL")
+    mindsdb_api_url: str = Field(default="", description="MindsDB API URL")
     mindsdb_timeout: int = Field(default=60, description="Timeout for MindsDB queries in seconds")
     mindsdb_max_retries: int = Field(default=3, description="Max retry attempts for failed queries")
 
@@ -160,9 +95,9 @@ class MindsDBSettings(BaseSettings):
 class LangfuseSettings(BaseSettings):
     """Langfuse observability configuration."""
 
-    langfuse_host: str = Field(..., description="Langfuse host URL")
-    langfuse_public_key: str = Field(..., description="Langfuse public key")
-    langfuse_secret_key: str = Field(..., description="Langfuse secret key")
+    langfuse_host: str = Field(default="", description="Langfuse host URL")
+    langfuse_public_key: str = Field(default="", description="Langfuse public key")
+    langfuse_secret_key: str = Field(default="", description="Langfuse secret key")
     langfuse_enabled: bool = Field(default=True, description="Enable/disable Langfuse tracing")
 
     @field_validator("langfuse_host")
@@ -177,7 +112,7 @@ class LangfuseSettings(BaseSettings):
 class OPASettings(BaseSettings):
     """OPA (Open Policy Agent) configuration."""
 
-    opa_url: str = Field(..., description="OPA server URL")
+    opa_url: str = Field(default="http://opa-service:8181", description="OPA server URL")
     opa_timeout: int = Field(default=5, description="Timeout for OPA requests in seconds")
 
     @field_validator("opa_url")
@@ -192,7 +127,7 @@ class OPASettings(BaseSettings):
 class JWTSettings(BaseSettings):
     """JWT authentication configuration."""
 
-    jwt_secret: str = Field(..., description="JWT secret key")
+    jwt_secret: str = Field(default="dev-secret-change-in-production", description="JWT secret key")
     jwt_algorithm: str = Field(default="HS256", description="JWT algorithm")
     jwt_expiration_minutes: int = Field(default=1440, description="Access token expiration")
     jwt_refresh_expiration_days: int = Field(default=7, description="Refresh token expiration")

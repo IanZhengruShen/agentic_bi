@@ -160,7 +160,7 @@ class AuthService:
 
         # Store refresh token hash
         token_hash = hash_token(refresh_token)
-        expires_at = datetime.utcnow() + timedelta(days=settings.JWT_REFRESH_EXPIRATION_DAYS)
+        expires_at = datetime.utcnow() + timedelta(days=settings.jwt.jwt_refresh_expiration_days)
 
         db_refresh_token = RefreshToken(
             user_id=user.id,
@@ -174,7 +174,7 @@ class AuthService:
             access_token=access_token,
             refresh_token=refresh_token,
             token_type="bearer",
-            expires_in=settings.JWT_EXPIRATION_MINUTES * 60
+            expires_in=settings.jwt.jwt_expiration_minutes * 60
         )
 
     async def refresh_access_token(self, refresh_token: str) -> TokenResponse:

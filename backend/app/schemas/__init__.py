@@ -38,6 +38,21 @@ from app.schemas.sql_schemas import (
     SQLErrorCategory,
 )
 
+from app.schemas.visualization_schemas import (
+    # Visualization schemas
+    VisualizationRequest,
+    VisualizationResponse,
+    VisualizationListResponse,
+    ChartRecommendation,
+    PlotlyFigureResponse,
+    # Custom style profile schemas
+    CustomStyleProfileCreate,
+    CustomStyleProfileUpdate,
+    CustomStyleProfileResponse,
+    CustomStyleProfileListResponse,
+    LogoUploadResponse,
+)
+
 __all__ = [
     # User schemas
     "UserBase",
@@ -68,4 +83,16 @@ __all__ = [
     "SQLValidationIssue",
     "SQLValidationResult",
     "SQLErrorCategory",
+    # Visualization schemas
+    "VisualizationRequest",
+    "VisualizationResponse",
+    "VisualizationListResponse",
+    "ChartRecommendation",
+    "PlotlyFigureResponse",
+    # Custom style profile schemas
+    "CustomStyleProfileCreate",
+    "CustomStyleProfileUpdate",
+    "CustomStyleProfileResponse",
+    "CustomStyleProfileListResponse",
+    "LogoUploadResponse",
 ]
