@@ -28,6 +28,7 @@ from app.workflows.coordination_nodes import (
     aggregate_results_node,
     should_visualize_router,
 )
+from app.workflows.event_emitter import event_emitter
 from app.core.llm import LLMClient, create_llm_client
 from app.services.mindsdb_service import MindsDBService, create_mindsdb_service
 from app.services.hitl_service import HITLService, get_hitl_service
@@ -204,6 +205,7 @@ class UnifiedWorkflowOrchestrator:
         database: str,
         user_id: str,
         company_id: str,
+        workflow_id: Optional[str] = None,
         conversation_id: Optional[str] = None,
         options: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
@@ -221,6 +223,8 @@ class UnifiedWorkflowOrchestrator:
             database: Target database
             user_id: User ID for auth and tracing
             company_id: Company ID for multi-tenancy
+            workflow_id: Optional workflow ID. If provided, uses this ID instead of generating one.
+                        Allows client to subscribe to WebSocket events before execution.
             conversation_id: Optional conversation thread ID for memory.
                            If provided, workflow loads previous conversation context.
                            If None, creates new conversation.
@@ -263,15 +267,18 @@ class UnifiedWorkflowOrchestrator:
         Raises:
             Exception: If workflow execution fails catastrophically
         """
-        # Generate unique workflow_id for THIS execution
-        workflow_id = str(uuid.uuid4())
+        # Use provided workflow_id or generate a new one
+        workflow_id_provided = workflow_id is not None
+        if workflow_id is None:
+            workflow_id = str(uuid.uuid4())
 
         # Use provided conversation_id or create new one
         # This is the KEY for conversation memory - reuse same ID for follow-ups!
         conversation_id = conversation_id or str(uuid.uuid4())
 
         logger.info(
-            f"[Orchestrator] Executing workflow {workflow_id} "
+            f"[Orchestrator] Executing workflow_id={workflow_id} "
+            f"(client_provided={workflow_id_provided}) "
             f"in conversation {conversation_id}: "
             f"query='{user_query}', database='{database}'"
         )
@@ -357,6 +364,13 @@ class UnifiedWorkflowOrchestrator:
             config["tags"] = ["unified-workflow", "multi-agent", database]
 
         try:
+            # Emit workflow started event
+            await event_emitter.emit_workflow_started(
+                workflow_id=workflow_id,
+                conversation_id=conversation_id,
+                user_query=user_query,
+            )
+
             # Execute unified workflow
             # This will automatically invoke agent subgraphs as it executes
             logger.info(f"[Orchestrator] Invoking workflow.ainvoke() for {workflow_id}")

@@ -105,6 +105,11 @@ class UnifiedWorkflowRequest(BaseModel):
         min_length=1,
         description="Target database name"
     )
+    workflow_id: Optional[str] = Field(
+        None,
+        description="Optional workflow ID. If provided, allows subscribing to WebSocket events "
+                    "before execution. If not provided, a UUID will be generated."
+    )
     conversation_id: Optional[str] = Field(
         None,
         description="Conversation thread ID for multi-turn conversations. "

@@ -373,29 +373,33 @@ class HITLService:
         """
         Broadcast intervention request via WebSocket.
 
-        Placeholder for PR#4 - full implementation in PR#8/PR#12.
-
         Args:
             request: HumanInputRequest to broadcast
         """
-        # Check if session has WebSocket connection
-        if request.session_id not in self._websocket_connections:
-            logger.warning(
-                f"No WebSocket connection for session {request.session_id}, "
-                "user cannot respond to intervention"
-            )
-            return
+        from app.websocket.connection_manager import connection_manager
+        from app.websocket.events import create_workflow_event, WorkflowEventType
 
-        # In PR#8, this will actually send WebSocket message
-        # For now, just log
-        logger.info(f"Broadcasting HITL request {request.request_id} (placeholder)")
+        logger.info(
+            f"Broadcasting HITL request {request.request_id} for workflow {request.session_id}"
+        )
 
-        # TODO: Implement WebSocket broadcast in PR#8
-        # websocket = self._websocket_connections[request.session_id]
-        # await websocket.send_json({
-        #     "type": "human_input_required",
-        #     "data": request.model_dump()
-        # })
+        # Use session_id as workflow_id for broadcast
+        # (In the workflow, session_id = workflow_id)
+        event = create_workflow_event(
+            WorkflowEventType.HUMAN_INPUT_REQUIRED,
+            workflow_id=request.session_id,
+            message=f"Human input required: {request.intervention_type}",
+            data={
+                "request_id": request.request_id,
+                "intervention_type": request.intervention_type,
+                "context": request.context,
+                "options": [opt.model_dump() for opt in request.options],
+                "timeout_seconds": request.timeout_seconds,
+                "timeout_at": request.timeout_at.isoformat(),
+            },
+        )
+
+        await connection_manager.broadcast_to_workflow(request.session_id, event)
 
     def register_websocket(self, session_id: str, websocket: Any):
         """

@@ -150,6 +150,7 @@ async def execute_unified_workflow(
             database=request.database,
             user_id=str(current_user.id),
             company_id=str(current_user.company_id) if current_user.company_id else "default",
+            workflow_id=request.workflow_id,  # Optional: allows client to subscribe before execution
             conversation_id=request.conversation_id,  # Pass through for conversation memory
             options=request.options.model_dump(),
         )

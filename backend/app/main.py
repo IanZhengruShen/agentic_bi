@@ -7,7 +7,14 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import settings
 from app.api.v1.router import api_router
-from app.api import agents_router, visualizations_router, style_profiles_router, workflows_router
+from app.api import (
+    agents_router,
+    visualizations_router,
+    style_profiles_router,
+    workflows_router,
+    websocket_router,
+    hitl_router,
+)
 
 # Create FastAPI app
 app = FastAPI(
@@ -35,6 +42,26 @@ app.include_router(agents_router)
 app.include_router(visualizations_router)
 app.include_router(style_profiles_router)
 app.include_router(workflows_router)
+
+# Include WebSocket router
+app.include_router(websocket_router)
+
+# Include HITL router
+app.include_router(hitl_router)
+
+# Log registered routes on startup
+@app.on_event("startup")
+async def startup_event():
+    import logging
+    logger = logging.getLogger(__name__)
+    logger.info("=" * 50)
+    logger.info("Agentic BI Platform API - Registered Routes:")
+    for route in app.routes:
+        if hasattr(route, "path") and hasattr(route, "methods"):
+            logger.info(f"  {route.methods} {route.path}")
+        elif hasattr(route, "path"):
+            logger.info(f"  WebSocket {route.path}")
+    logger.info("=" * 50)
 
 
 @app.get("/")
