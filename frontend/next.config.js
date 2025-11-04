@@ -2,7 +2,6 @@
 const nextConfig = {
   output: 'standalone',
   reactStrictMode: true,
-  swcMinify: true,
 
   // Environment variables exposed to the browser
   env: {
@@ -10,14 +9,8 @@ const nextConfig = {
     NEXT_PUBLIC_WS_URL: process.env.NEXT_PUBLIC_WS_URL,
   },
 
-  // Webpack configuration
-  webpack: (config) => {
-    config.resolve.fallback = {
-      ...config.resolve.fallback,
-      fs: false,
-    };
-    return config;
-  },
+  // Turbopack is now default in Next.js 16
+  turbopack: {},
 };
 
 module.exports = nextConfig;
