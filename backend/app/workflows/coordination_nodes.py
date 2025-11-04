@@ -17,6 +17,7 @@ from datetime import datetime
 
 from app.workflows.unified_state import UnifiedWorkflowState
 from app.core.llm import LLMClient
+from app.workflows.event_emitter import event_emitter
 
 logger = logging.getLogger(__name__)
 
@@ -50,6 +51,14 @@ async def run_analysis_adapter_node(
     logger.info(
         f"[UnifiedWorkflow:run_analysis] Invoking AnalysisAgent subgraph "
         f"for workflow {state['workflow_id']}"
+    )
+
+    # Emit stage started event
+    await event_emitter.emit_stage_started(
+        workflow_id=state["workflow_id"],
+        stage="analysis",
+        message="Analyzing query and generating SQL...",
+        progress=0.1,
     )
 
     try:
@@ -91,6 +100,13 @@ async def run_analysis_adapter_node(
             }
             config["tags"] = ["unified-workflow", "analysis-agent"]
 
+        # Emit agent started event
+        await event_emitter.emit_agent_started(
+            workflow_id=state["workflow_id"],
+            agent="analysis",
+            progress=0.15,
+        )
+
         # CRITICAL: Invoke AnalysisAgent's compiled workflow (subgraph)
         # This is the LangGraph subgraph pattern, not a Python method call
         logger.info(
@@ -99,6 +115,13 @@ async def run_analysis_adapter_node(
         analysis_result = await analysis_agent.workflow.ainvoke(
             analysis_input,
             config=config
+        )
+
+        # Emit agent completed event
+        await event_emitter.emit_agent_completed(
+            workflow_id=state["workflow_id"],
+            agent="analysis",
+            progress=0.35,
         )
 
         logger.info(
@@ -168,6 +191,14 @@ async def decide_visualization_node(
     logger.info(
         f"[UnifiedWorkflow:decide_visualization] Evaluating visualization need "
         f"for workflow {state['workflow_id']}"
+    )
+
+    # Emit stage started event
+    await event_emitter.emit_stage_started(
+        workflow_id=state["workflow_id"],
+        stage="deciding",
+        message="Deciding if visualization is needed...",
+        progress=0.4,
     )
 
     # === Rule-based checks (fast filtering) ===
@@ -320,6 +351,14 @@ async def run_visualization_adapter_node(
         f"for workflow {state['workflow_id']}"
     )
 
+    # Emit stage started event
+    await event_emitter.emit_stage_started(
+        workflow_id=state["workflow_id"],
+        stage="visualizing",
+        message="Creating visualization...",
+        progress=0.5,
+    )
+
     try:
         # Import VisualizationAgent and its state helper
         from app.agents.visualization_agent import VisualizationAgent
@@ -366,6 +405,13 @@ async def run_visualization_adapter_node(
             }
             config["tags"] = ["unified-workflow", "visualization-agent"]
 
+        # Emit agent started event
+        await event_emitter.emit_agent_started(
+            workflow_id=state["workflow_id"],
+            agent="visualization",
+            progress=0.55,
+        )
+
         # CRITICAL: Invoke VisualizationAgent's compiled workflow (subgraph)
         logger.info(
             f"[UnifiedWorkflow:run_visualization] Executing VisualizationAgent.workflow.ainvoke()"
@@ -373,6 +419,13 @@ async def run_visualization_adapter_node(
         viz_result = await viz_agent.workflow.ainvoke(
             visualization_input,
             config=config
+        )
+
+        # Emit agent completed event
+        await event_emitter.emit_agent_completed(
+            workflow_id=state["workflow_id"],
+            agent="visualization",
+            progress=0.85,
         )
 
         logger.info(
@@ -437,6 +490,14 @@ async def aggregate_results_node(
         f"[UnifiedWorkflow:aggregate_results] Finalizing workflow {state['workflow_id']}"
     )
 
+    # Emit finalizing stage event
+    await event_emitter.emit_stage_started(
+        workflow_id=state["workflow_id"],
+        stage="finalizing",
+        message="Finalizing results...",
+        progress=0.9,
+    )
+
     # Calculate total execution time
     created_at = datetime.fromisoformat(state["created_at"])
     completed_at = datetime.utcnow()
@@ -464,6 +525,18 @@ async def aggregate_results_node(
         f"agents={state.get('agents_executed', [])}, "
         f"insights={len(all_insights)}"
     )
+
+    # Emit workflow completion event (or failure event)
+    if final_status == "failed":
+        await event_emitter.emit_workflow_failed(
+            workflow_id=state["workflow_id"],
+            error=", ".join(state.get("errors", [])),
+        )
+    else:
+        await event_emitter.emit_workflow_completed(
+            workflow_id=state["workflow_id"],
+            conversation_id=state.get("conversation_id"),
+        )
 
     return {
         "workflow_status": final_status,
