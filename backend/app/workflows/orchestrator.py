@@ -26,7 +26,9 @@ from app.workflows.coordination_nodes import (
     decide_visualization_node,
     run_visualization_adapter_node,
     aggregate_results_node,
+    human_review_node,
     should_visualize_router,
+    should_request_human_review,
 )
 from app.workflows.event_emitter import event_emitter
 from app.core.llm import LLMClient, create_llm_client
@@ -100,12 +102,17 @@ class UnifiedWorkflowOrchestrator:
         """
         Create unified workflow graph using subgraph pattern.
 
-        Workflow Structure (Prompt Chaining + Routing):
+        Workflow Structure (Prompt Chaining + Routing + HITL):
 
         START
           ↓
         run_analysis_adapter (invokes AnalysisAgent subgraph)
           ↓
+        [CONDITIONAL EDGE: Check SQL confidence]
+          ├─ Low confidence → human_review (HITL pause/resume)
+          │                      ↓
+          └─ High confidence → decide_visualization
+                               ↓
         decide_visualization (routing: LLM + rules decide if viz needed)
           ↓
         [CONDITIONAL EDGE]
@@ -161,15 +168,35 @@ class UnifiedWorkflowOrchestrator:
             """Aggregation node: combine results from all agents"""
             return await aggregate_results_node(state)
 
+        async def _human_review_with_deps(state: UnifiedWorkflowState):
+            """HITL node: request human review for low-confidence SQL"""
+            return await human_review_node(
+                state,
+                hitl_service=self.hitl_service,
+            )
+
         # Add nodes to graph
         workflow.add_node("run_analysis", _run_analysis_with_deps)
+        workflow.add_node("human_review", _human_review_with_deps)
         workflow.add_node("decide_visualization", _decide_visualization_with_deps)
         workflow.add_node("run_visualization", _run_visualization_with_deps)
         workflow.add_node("aggregate_results", _aggregate_results_with_deps)
 
-        # Define edges: Prompt Chaining
+        # Define edges: Prompt Chaining + HITL
         workflow.add_edge(START, "run_analysis")
-        workflow.add_edge("run_analysis", "decide_visualization")
+
+        # Conditional edge: Check if human review needed based on SQL confidence
+        workflow.add_conditional_edges(
+            "run_analysis",
+            should_request_human_review,
+            {
+                "human_review": "human_review",
+                "decide_visualization": "decide_visualization",
+            }
+        )
+
+        # After human review, continue to visualization decision
+        workflow.add_edge("human_review", "decide_visualization")
 
         # Conditional edge: Routing pattern
         # Route based on should_visualize flag
@@ -377,6 +404,44 @@ class UnifiedWorkflowOrchestrator:
 
             final_state = await self.workflow.ainvoke(initial_state, config=config)
 
+            # CRITICAL: Check if workflow is paused (waiting for human input)
+            # When interrupt() is called, ainvoke() returns normally but workflow is paused
+            # We must check the state to see if there are pending nodes
+            snapshot = self.workflow.get_state(config)
+            if snapshot.next:
+                # Workflow is paused - there are pending nodes
+                logger.info(
+                    f"[Orchestrator] Workflow {workflow_id} paused at node: {snapshot.next}"
+                )
+
+                # Emit workflow.paused event
+                try:
+                    from app.websocket.connection_manager import connection_manager
+                    from app.websocket.events import create_workflow_event, WorkflowEventType
+
+                    event = create_workflow_event(
+                        WorkflowEventType.WORKFLOW_PAUSED,
+                        workflow_id=workflow_id,
+                        message=f"Workflow paused for human input",
+                    )
+                    await connection_manager.broadcast_to_workflow(workflow_id, event)
+                except Exception as broadcast_error:
+                    logger.error(f"Failed to broadcast pause event: {broadcast_error}")
+
+                # Return paused state
+                return {
+                    "workflow_id": workflow_id,
+                    "conversation_id": conversation_id,
+                    "workflow_status": "paused",
+                    "message": "Workflow paused - waiting for human input",
+                    "pause_reason": "human_input_required",
+                    "next_node": snapshot.next[0] if snapshot.next else None,
+                    "created_at": initial_state["created_at"],
+                    "paused_at": datetime.utcnow().isoformat(),
+                    "agents_executed": final_state.get("agents_executed", []),
+                }
+
+            # Workflow completed normally
             logger.info(
                 f"[Orchestrator] Workflow {workflow_id} completed: "
                 f"status={final_state.get('workflow_status')}, "
@@ -388,10 +453,58 @@ class UnifiedWorkflowOrchestrator:
             return dict(final_state)
 
         except Exception as e:
+            # Check if this is a LangGraph interrupt (HITL pause)
+            if "Interrupt" in str(type(e).__name__):
+                logger.info(
+                    f"[Orchestrator] Workflow {workflow_id} paused for human input (interrupt detected)"
+                )
+
+                # Emit workflow.paused event
+                try:
+                    from app.websocket.connection_manager import connection_manager
+                    from app.websocket.events import create_workflow_event, WorkflowEventType
+
+                    event = create_workflow_event(
+                        WorkflowEventType.WORKFLOW_PAUSED,
+                        workflow_id=workflow_id,
+                        message="Workflow paused for human review",
+                    )
+                    await connection_manager.broadcast_to_workflow(workflow_id, event)
+                except Exception as broadcast_error:
+                    logger.error(f"Failed to broadcast pause event: {broadcast_error}")
+
+                # Return paused state (not an error!)
+                return {
+                    "workflow_id": workflow_id,
+                    "conversation_id": conversation_id,
+                    "workflow_status": "paused",
+                    "message": "Workflow paused - waiting for human input",
+                    "pause_reason": "human_review_required",
+                    "created_at": initial_state["created_at"],
+                    "paused_at": datetime.utcnow().isoformat(),
+                    "agents_executed": initial_state.get("agents_executed", []),
+                }
+
+            # For other exceptions, treat as actual failure
             logger.error(
                 f"[Orchestrator] Workflow {workflow_id} failed catastrophically: {e}",
                 exc_info=True
             )
+
+            # Emit workflow.failed event
+            try:
+                from app.websocket.connection_manager import connection_manager
+                from app.websocket.events import create_workflow_event, WorkflowEventType
+
+                event = create_workflow_event(
+                    WorkflowEventType.WORKFLOW_FAILED,
+                    workflow_id=workflow_id,
+                    message=f"Workflow failed: {str(e)}",
+                    error=str(e),
+                )
+                await connection_manager.broadcast_to_workflow(workflow_id, event)
+            except Exception as broadcast_error:
+                logger.error(f"Failed to broadcast failure event: {broadcast_error}")
 
             # Return error state
             return {
@@ -428,6 +541,79 @@ class UnifiedWorkflowOrchestrator:
         return None
 
 
+# Global orchestrator instance for workflow resumption
+_global_orchestrator = None
+
+
+async def resume_workflow(
+    thread_id: str,
+    resume_value: Dict[str, Any],
+    workflow_id: Optional[str] = None,
+) -> Dict[str, Any]:
+    """
+    Resume a paused workflow with user's response.
+
+    Args:
+        thread_id: Thread ID for checkpointer (usually conversation_id)
+        resume_value: User's response data
+        workflow_id: Original workflow ID (for WebSocket broadcasting)
+
+    Returns:
+        Final workflow state after resumption
+    """
+    global _global_orchestrator
+
+    if not _global_orchestrator:
+        logger.error("[Resume] No global orchestrator available - cannot resume")
+        raise RuntimeError("Orchestrator not initialized")
+
+    logger.info(f"[Resume] Resuming workflow thread {thread_id} with: {resume_value}")
+
+    try:
+        from langgraph.types import Command
+
+        # Resume the workflow using Command
+        # Use the same thread_id that was used during initial execution
+        config = {"configurable": {"thread_id": thread_id}}
+
+        # Create Command to resume with user's response
+        command = Command(resume=resume_value)
+
+        # Invoke workflow with resume command
+        final_state = await _global_orchestrator.workflow.ainvoke(command, config=config)
+
+        logger.info(f"[Resume] Workflow thread {thread_id} resumed and completed")
+
+        # Emit workflow.resumed and workflow.completed events
+        from app.websocket.connection_manager import connection_manager
+        from app.websocket.events import create_workflow_event, WorkflowEventType
+
+        # Use explicitly provided workflow_id or get from final state
+        broadcast_id = workflow_id or final_state.get("workflow_id", thread_id)
+
+        # Resumed event
+        event_resumed = create_workflow_event(
+            WorkflowEventType.WORKFLOW_RESUMED,
+            workflow_id=broadcast_id,
+            message="Workflow resumed after human review",
+        )
+        await connection_manager.broadcast_to_workflow(broadcast_id, event_resumed)
+
+        # Completed event
+        event_completed = create_workflow_event(
+            WorkflowEventType.WORKFLOW_COMPLETED,
+            workflow_id=broadcast_id,
+            message="Workflow completed successfully",
+        )
+        await connection_manager.broadcast_to_workflow(broadcast_id, event_completed)
+
+        return dict(final_state)
+
+    except Exception as e:
+        logger.error(f"[Resume] Failed to resume workflow thread {thread_id}: {e}", exc_info=True)
+        raise
+
+
 def create_unified_orchestrator(
     llm_client: Optional[LLMClient] = None,
     mindsdb_service: Optional[MindsDBService] = None,
@@ -446,9 +632,16 @@ def create_unified_orchestrator(
     Returns:
         UnifiedWorkflowOrchestrator instance
     """
-    return UnifiedWorkflowOrchestrator(
+    global _global_orchestrator
+
+    orchestrator = UnifiedWorkflowOrchestrator(
         llm_client=llm_client,
         mindsdb_service=mindsdb_service,
         hitl_service=hitl_service,
         langfuse_handler=langfuse_handler,
     )
+
+    # Store globally for workflow resumption
+    _global_orchestrator = orchestrator
+
+    return orchestrator

@@ -22,6 +22,7 @@ export interface Conversation {
   title: string; // Auto-generated from first message
   messages: Message[];
   database: string; // Current database
+  currentWorkflowId?: string; // Track current active workflow
   createdAt: Date;
   updatedAt: Date;
 }
@@ -110,6 +111,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
       currentConversation: {
         ...currentConversation,
         messages: updatedMessages,
+        currentWorkflowId: workflowId, // Track current workflow
         updatedAt: new Date(),
       },
       isLoading: true,

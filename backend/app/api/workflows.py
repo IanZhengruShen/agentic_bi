@@ -137,10 +137,16 @@ async def execute_unified_workflow(
         # Create LLM client
         llm_client = create_llm_client(langfuse_handler=langfuse_handler)
 
+        # Create HITL service with database session
+        # CRITICAL: Pass db_session so HITL requests are persisted to database
+        from app.services.hitl_service import get_hitl_service
+        hitl_service = get_hitl_service(db_session=db)
+
         # Create unified orchestrator
         # Note: Fresh instance per request to avoid shared state
         orchestrator = create_unified_orchestrator(
             llm_client=llm_client,
+            hitl_service=hitl_service,
             langfuse_handler=langfuse_handler,
         )
 

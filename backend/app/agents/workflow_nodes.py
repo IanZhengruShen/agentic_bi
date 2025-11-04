@@ -167,6 +167,103 @@ async def human_review_node(
                 }
             )
 
+        # CRITICAL: Create HITL request in database FIRST, then broadcast
+        # This ensures frontend can find the request when responding
+        request_id = None
+        timeout_seconds = 300
+
+        try:
+            from app.websocket.connection_manager import connection_manager
+            from app.websocket.events import create_workflow_event, WorkflowEventType
+            from datetime import timedelta
+
+            # Persist HITL request to database first
+            if hitl_service and hasattr(hitl_service, 'repository') and hitl_service.repository:
+                try:
+                    db_request = await hitl_service.repository.create_request(
+                        workflow_id=state["session_id"],
+                        intervention_type="sql_review",
+                        context={
+                            "generated_sql": state["generated_sql"],
+                            "confidence": state["confidence"],
+                            "explanation": state["explanation"],
+                            "warnings": state["warnings"],
+                            "intent": state["intent"],
+                            "user_query": state.get("user_query", ""),
+                        },
+                        options=[
+                            {"action": "approve", "label": "Execute as-is", "description": "Execute the generated SQL"},
+                            {"action": "modify", "label": "Modify SQL", "description": "Provide modified SQL"},
+                            {"action": "reject", "label": "Reject", "description": "Reject and stop"},
+                        ],
+                        timeout_seconds=timeout_seconds,
+                        conversation_id=state.get("conversation_id"),
+                        requester_user_id=state.get("user_id"),
+                        company_id=state.get("company_id"),
+                    )
+                    request_id = db_request.request_id
+
+                    # CRITICAL: Commit immediately so frontend can find the request
+                    await hitl_service.db_session.commit()
+                    logger.info(f"[Node: human_review] Persisted HITL request to database: request_id={request_id}")
+                except Exception as db_error:
+                    logger.error(f"[Node: human_review] Failed to persist HITL request: {db_error}")
+                    # Generate a request_id anyway for WebSocket
+                    import uuid
+                    request_id = str(uuid.uuid4())
+            else:
+                # No database - generate request_id for in-memory only
+                import uuid
+                request_id = str(uuid.uuid4())
+
+            # Now broadcast WebSocket event with the correct request_id
+            timeout_at = datetime.utcnow() + timedelta(seconds=timeout_seconds)
+
+            event = create_workflow_event(
+                WorkflowEventType.HUMAN_INPUT_REQUIRED,
+                workflow_id=state["session_id"],
+                message=f"Human input required: approve_query",
+                data={
+                    "request_id": request_id,
+                    "intervention_type": "sql_review",
+                    "context": {
+                        "generated_sql": state["generated_sql"],
+                        "confidence": state["confidence"],
+                        "explanation": state["explanation"],
+                        "warnings": state["warnings"],
+                        "intent": state["intent"],
+                        "user_query": state.get("user_query", ""),
+                    },
+                    "options": [
+                        {
+                            "action": "approve",
+                            "label": "Execute as-is",
+                            "description": "Execute the generated SQL",
+                        },
+                        {
+                            "action": "modify",
+                            "label": "Modify SQL",
+                            "description": "Provide modified SQL",
+                        },
+                        {
+                            "action": "reject",
+                            "label": "Reject",
+                            "description": "Reject and stop",
+                        },
+                    ],
+                    "timeout_seconds": timeout_seconds,
+                    "timeout_at": timeout_at.isoformat(),
+                    "requested_at": datetime.utcnow().isoformat(),
+                },
+            )
+
+            await connection_manager.broadcast_to_workflow(state["session_id"], event)
+            logger.info(f"[Node: human_review] Broadcast WebSocket event: request_id={request_id}")
+
+        except Exception as e:
+            logger.error(f"[Node: human_review] Failed to create HITL request or broadcast: {e}")
+            # Continue anyway - interrupt will still work
+
         # Pause workflow and wait for human input
         # This doesn't block - the workflow state is persisted and can resume later
         human_response = interrupt({
@@ -231,6 +328,9 @@ async def human_review_node(
         return updates
 
     except Exception as e:
+        # CRITICAL: Don't catch GraphInterrupt or Interrupt - let them propagate to pause the workflow!
+        if "Interrupt" in type(e).__name__ or "GraphInterrupt" in type(e).__name__:
+            raise
         logger.error(f"Human review failed: {e}")
         return {
             "errors": [f"Human review failed: {str(e)}"],
@@ -586,14 +686,17 @@ def should_request_human_review(state: WorkflowState) -> str:
     """
     Determine if human review is needed.
 
+    NOTE: HITL is now handled at the PARENT WORKFLOW level (UnifiedWorkflow),
+    not in the AnalysisAgent subgraph. This routing function always skips
+    the human_review node to avoid checkpoint conflicts.
+
     Args:
         state: Current workflow state
 
     Returns:
-        Next node name: "human_review" or "validate_sql"
+        Next node name: Always "validate_sql" (skip human_review)
     """
-    if state.get("needs_human_review", False):
-        return "human_review"
+    # Always skip human_review - it's handled at parent workflow level
     return "validate_sql"
 
 

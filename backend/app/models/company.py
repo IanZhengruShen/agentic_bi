@@ -17,7 +17,7 @@ class Company(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     name = Column(String(255), nullable=False)
-    domain = Column(String(255), unique=True, index=True)
+    domain = Column(String(255), index=True)  # Not unique - multiple users can have same domain
     logo_url = Column(String(500))
 
     # Configuration

@@ -5,11 +5,13 @@ from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sess
 from typing import AsyncGenerator
 import os
 
-# Database URL from environment
-DATABASE_URL = os.getenv(
-    "DATABASE_URL",
-    "postgresql+asyncpg://admin:devpassword123@postgres:5432/agentic_bi"
-)
+# Database URL from environment (required - no default)
+DATABASE_URL = os.getenv("DATABASE_URL")
+if not DATABASE_URL:
+    raise ValueError(
+        "DATABASE_URL environment variable is required. "
+        "Please set it in your .env file (e.g., postgresql+asyncpg://user:password@host:port/dbname)"
+    )
 
 # Create async engine
 async_engine = create_async_engine(

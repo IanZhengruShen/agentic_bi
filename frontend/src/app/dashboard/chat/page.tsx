@@ -7,6 +7,9 @@ import ChatMessageList from '@/components/chat/ChatMessageList';
 import ChatInput from '@/components/chat/ChatInput';
 import { Button } from '@/components/ui/button';
 import { PlusCircle } from 'lucide-react';
+import { useHITL } from '@/hooks/useHITL';
+import { HITLApprovalModal } from '@/components/hitl/HITLApprovalModal';
+import { HITLDebugPanel } from '@/components/hitl/HITLDebugPanel';
 
 export default function ChatPage() {
   const {
@@ -15,6 +18,10 @@ export default function ChatPage() {
     availableDatabases,
     fetchDatabases
   } = useConversationStore();
+
+  // HITL: Listen for human intervention requests
+  // Use currentWorkflowId (the active workflow) instead of conversation.id
+  useHITL(currentConversation?.currentWorkflowId);
 
   const wsConnectedRef = useRef(false);
 
@@ -84,6 +91,12 @@ export default function ChatPage() {
 
       {/* Input */}
       <ChatInput />
+
+      {/* HITL Modal (shows when pendingRequest exists) */}
+      <HITLApprovalModal />
+
+      {/* Debug Panel (dev mode only) */}
+      <HITLDebugPanel />
     </div>
   );
 }

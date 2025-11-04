@@ -15,6 +15,7 @@ from app.api import (
     websocket_router,
     hitl_router,
     databases_router,
+    users_router,
 )
 
 # Create FastAPI app
@@ -44,6 +45,9 @@ app.include_router(visualizations_router)
 app.include_router(style_profiles_router)
 app.include_router(workflows_router)
 app.include_router(databases_router)
+
+# Include user router
+app.include_router(users_router)
 
 # Include WebSocket router
 app.include_router(websocket_router)

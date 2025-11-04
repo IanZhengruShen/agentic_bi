@@ -22,6 +22,7 @@ class WorkflowState(TypedDict):
 
     # Session identification
     session_id: str
+    conversation_id: Optional[str]  # Thread ID for conversation memory (used for checkpointing)
     user_id: Optional[str]
     company_id: Optional[str]
 
@@ -86,6 +87,7 @@ def create_initial_state(
     session_id: str,
     query: str,
     database: str,
+    conversation_id: Optional[str] = None,
     user_id: Optional[str] = None,
     company_id: Optional[str] = None,
     options: Optional[Dict[str, Any]] = None,
@@ -97,6 +99,7 @@ def create_initial_state(
         session_id: Session identifier
         query: Natural language query
         database: Target database
+        conversation_id: Optional conversation ID for memory/checkpointing
         user_id: Optional user ID
         company_id: Optional company ID
         options: Optional configuration options
@@ -107,6 +110,7 @@ def create_initial_state(
     return WorkflowState(
         # Session
         session_id=session_id,
+        conversation_id=conversation_id,
         user_id=user_id,
         company_id=company_id,
 

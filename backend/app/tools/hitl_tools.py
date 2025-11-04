@@ -209,6 +209,34 @@ class HybridHITLTool:
             except Exception as e:
                 logger.error(f"[HybridHITL] Failed to send notifications: {e}")
 
+        # Step 3.5: Send WebSocket event (CRITICAL for frontend modal)
+        try:
+            from app.websocket.connection_manager import connection_manager
+            from app.websocket.events import create_workflow_event, WorkflowEventType
+            from datetime import datetime, timedelta
+
+            timeout_at = datetime.utcnow() + timedelta(seconds=timeout_seconds)
+
+            event = create_workflow_event(
+                WorkflowEventType.HUMAN_INPUT_REQUIRED,
+                workflow_id=workflow_id,
+                message=f"Human input required: {intervention_type}",
+                data={
+                    "request_id": request_id,
+                    "intervention_type": intervention_type,
+                    "context": context,
+                    "options": options,
+                    "timeout_seconds": timeout_seconds,
+                    "timeout_at": timeout_at.isoformat(),
+                    "requested_at": datetime.utcnow().isoformat(),
+                },
+            )
+
+            await connection_manager.broadcast_to_workflow(workflow_id, event)
+            logger.info(f"[HybridHITL] Broadcast WebSocket event for request {request_id}")
+        except Exception as e:
+            logger.error(f"[HybridHITL] Failed to broadcast WebSocket event: {e}")
+
         # Step 4: Use LangGraph's interrupt() to pause workflow
         # This is the magic - LangGraph handles state management!
         interrupt_data = {

@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Home, MessageSquare, Settings, Sparkles, Clock, TrendingUp } from 'lucide-react';
+import { Home, MessageSquare, Settings, Sparkles, Clock, TrendingUp, History } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 const navigation = [
@@ -19,11 +19,16 @@ const navigation = [
     description: 'Query & analyze'
   },
   {
+    name: 'History',
+    href: '/dashboard/history',
+    icon: History,
+    description: 'HITL interventions'
+  },
+  {
     name: 'Settings',
-    href: '/dashboard/settings',
+    href: '/dashboard/settings/notifications',
     icon: Settings,
-    description: 'Preferences',
-    badge: 'Soon'
+    description: 'Notifications'
   },
 ];
 
@@ -70,11 +75,6 @@ export function Sidebar() {
                   <div className="text-xs text-gray-500">{item.description}</div>
                 </div>
               </div>
-              {item.badge && (
-                <span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">
-                  {item.badge}
-                </span>
-              )}
             </Link>
           );
         })}

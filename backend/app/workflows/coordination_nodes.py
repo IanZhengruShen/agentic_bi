@@ -18,6 +18,7 @@ from datetime import datetime
 from app.workflows.unified_state import UnifiedWorkflowState
 from app.core.llm import LLMClient
 from app.workflows.event_emitter import event_emitter
+from app.services.hitl_service import HITLService
 
 logger = logging.getLogger(__name__)
 
@@ -50,7 +51,7 @@ async def run_analysis_adapter_node(
     """
     logger.info(
         f"[UnifiedWorkflow:run_analysis] Invoking AnalysisAgent subgraph "
-        f"for workflow {state['workflow_id']}"
+        f"for workflow {state.get('workflow_id', 'unknown')}"
     )
 
     # Emit stage started event
@@ -77,18 +78,23 @@ async def run_analysis_adapter_node(
 
         # Transform UnifiedWorkflowState → AnalysisAgent's WorkflowState input
         # IMPORTANT: Use create_initial_state to ensure all required fields are present
+        # CRITICAL: Pass conversation_id for checkpointing and HITL workflow resume
         analysis_input = create_initial_state(
             session_id=state["workflow_id"],  # Reuse workflow_id as session_id
             query=state["user_query"],
             database=state["database"],
+            conversation_id=state.get("conversation_id"),  # Critical for resume!
             user_id=state.get("user_id"),
             company_id=state.get("company_id"),
             options=state.get("options", {}),
         )
 
         # Configure Langfuse for subgraph
+        # CRITICAL: Use SAME thread_id as parent so subgraph resumes from checkpoint
+        conversation_id = state.get("conversation_id") or state["workflow_id"]
+
         config = {
-            "configurable": {"thread_id": state["workflow_id"]}
+            "configurable": {"thread_id": conversation_id}
         }
         if langfuse_handler:
             config["callbacks"] = [langfuse_handler]
@@ -107,6 +113,23 @@ async def run_analysis_adapter_node(
             progress=0.15,
         )
 
+        # CRITICAL: Check if subgraph has a paused state (from previous execution)
+        # If so, we need to RESUME it, not start fresh
+        from langgraph.types import Command
+
+        snapshot = analysis_agent.workflow.get_state(config)
+        if snapshot.next:
+            # Subgraph is paused - check if we're resuming or starting
+            logger.info(
+                f"[UnifiedWorkflow:run_analysis] Found paused AnalysisAgent at node: {snapshot.next}"
+            )
+            # This shouldn't happen - if we're here, parent is resuming but subgraph is still paused
+            # Re-raise to pause parent again
+            from langgraph.errors import GraphInterrupt
+            raise GraphInterrupt(
+                f"AnalysisAgent still paused at node: {snapshot.next}"
+            )
+
         # CRITICAL: Invoke AnalysisAgent's compiled workflow (subgraph)
         # This is the LangGraph subgraph pattern, not a Python method call
         logger.info(
@@ -116,6 +139,22 @@ async def run_analysis_adapter_node(
             analysis_input,
             config=config
         )
+
+        # CRITICAL: Check if subgraph is paused (waiting for human input)
+        # When a subgraph calls interrupt(), it pauses but ainvoke() returns normally
+        # We must check the state to see if there are pending nodes
+        snapshot = analysis_agent.workflow.get_state(config)
+        if snapshot.next:
+            # Subgraph is paused - re-raise interrupt to pause parent workflow too
+            logger.info(
+                f"[UnifiedWorkflow:run_analysis] AnalysisAgent paused at node: {snapshot.next}"
+            )
+
+            # Re-raise GraphInterrupt to pause parent workflow
+            from langgraph.errors import GraphInterrupt
+            raise GraphInterrupt(
+                f"AnalysisAgent paused for human input at node: {snapshot.next}"
+            )
 
         # Emit agent completed event
         await event_emitter.emit_agent_completed(
@@ -547,7 +586,162 @@ async def aggregate_results_node(
     }
 
 
+# ============================================
+# Node: Human Review (HITL) - Parent Level
+# ============================================
+
+
+async def human_review_node(
+    state: UnifiedWorkflowState,
+    hitl_service: HITLService,
+) -> Dict[str, Any]:
+    """
+    Node: Request human review for generated SQL using interrupt().
+
+    This is at the PARENT workflow level (not in AnalysisAgent subgraph).
+    This allows proper pause/resume without subgraph checkpoint conflicts.
+
+    Args:
+        state: Current unified workflow state
+        hitl_service: HITL service instance
+
+    Returns:
+        State updates
+    """
+    from langgraph.types import interrupt
+
+    logger.info("[Node: human_review] Requesting approval at parent workflow level...")
+
+    # Create HITL request in database
+    request_id = None
+    timeout_seconds = 300
+
+    try:
+        from app.websocket.connection_manager import connection_manager
+        from app.websocket.events import create_workflow_event, WorkflowEventType
+        from datetime import timedelta
+
+        # Persist HITL request to database first
+        if hitl_service and hasattr(hitl_service, 'repository') and hitl_service.repository:
+            db_request = await hitl_service.repository.create_request(
+                workflow_id=state["workflow_id"],
+                intervention_type="sql_review",
+                context={
+                    "generated_sql": state.get("generated_sql"),
+                    "confidence": state.get("sql_confidence"),
+                    "explanation": state.get("analysis_results", {}).get("explanation", ""),
+                    "user_query": state.get("user_query", ""),
+                },
+                options=[
+                    {"action": "approve", "label": "Execute as-is", "description": "Execute the generated SQL"},
+                    {"action": "modify", "label": "Modify SQL", "description": "Provide modified SQL"},
+                    {"action": "reject", "label": "Reject", "description": "Reject and stop"},
+                ],
+                timeout_seconds=timeout_seconds,
+                conversation_id=state.get("conversation_id"),
+                requester_user_id=state.get("user_id"),
+                company_id=state.get("company_id"),
+            )
+            request_id = db_request.request_id
+
+            # Commit immediately so frontend can find the request
+            await hitl_service.db_session.commit()
+            logger.info(f"[Node: human_review] Persisted HITL request: request_id={request_id}")
+
+        # Broadcast WebSocket event
+        timeout_at = datetime.utcnow() + timedelta(seconds=timeout_seconds)
+
+        event = create_workflow_event(
+            WorkflowEventType.HUMAN_INPUT_REQUIRED,
+            workflow_id=state["workflow_id"],
+            message=f"Human input required: approve_query",
+            data={
+                "request_id": request_id,
+                "intervention_type": "sql_review",
+                "context": {
+                    "generated_sql": state.get("generated_sql"),
+                    "confidence": state.get("sql_confidence"),
+                    "user_query": state.get("user_query", ""),
+                },
+                "options": [
+                    {"action": "approve", "label": "Execute as-is", "description": "Execute the generated SQL"},
+                    {"action": "modify", "label": "Modify SQL", "description": "Provide modified SQL"},
+                    {"action": "reject", "label": "Reject", "description": "Reject and stop"},
+                ],
+                "timeout_seconds": timeout_seconds,
+                "timeout_at": timeout_at.isoformat(),
+                "requested_at": datetime.utcnow().isoformat(),
+            },
+        )
+
+        await connection_manager.broadcast_to_workflow(state["workflow_id"], event)
+        logger.info(f"[Node: human_review] Broadcast WebSocket event: request_id={request_id}")
+
+    except Exception as e:
+        # Don't catch GraphInterrupt - let it propagate!
+        if "Interrupt" in type(e).__name__ or "GraphInterrupt" in type(e).__name__:
+            raise
+        logger.error(f"[Node: human_review] Failed to create HITL request: {e}")
+
+    # Pause workflow and wait for human input
+    # On first execution: raises GraphInterrupt to pause
+    # On resume: returns the human response value
+    human_response = interrupt({
+        "type": "human_review",
+        "workflow_id": state["workflow_id"],
+        "intervention_type": "approve_query",
+        "context": {
+            "generated_sql": state.get("generated_sql"),
+            "confidence": state.get("sql_confidence"),
+        },
+        "options": [
+            {"action": "approve", "label": "Execute as-is"},
+            {"action": "modify", "label": "Modify SQL"},
+            {"action": "reject", "label": "Reject"},
+        ],
+    })
+
+    # When execution resumes, human_response contains the user's decision
+    logger.info(f"[Node: human_review] Received response: {human_response.get('action')}")
+
+    # Handle outcome
+    updates = {
+        "workflow_status": "reviewing",
+    }
+
+    if human_response.get("action") == "modify" and human_response.get("modified_sql"):
+        updates["generated_sql"] = human_response["modified_sql"]
+
+    elif human_response.get("action") == "reject":
+        updates["workflow_status"] = "failed"
+        updates["errors"] = ["Query rejected by user"]
+
+    return updates
+
+
 # === Routing Functions ===
+
+def should_request_human_review(state: UnifiedWorkflowState) -> str:
+    """
+    Determine if human review is needed after analysis.
+
+    Args:
+        state: Current workflow state
+
+    Returns:
+        Next node name: "human_review" or "decide_visualization"
+    """
+    # Check if SQL confidence is below threshold (requiring review)
+    sql_confidence = state.get("sql_confidence", 1.0)
+    confidence_threshold = 0.7  # TODO: Make this configurable
+
+    if sql_confidence < confidence_threshold:
+        logger.info(f"SQL confidence {sql_confidence} < {confidence_threshold}, requesting human review")
+        return "human_review"
+
+    logger.info(f"SQL confidence {sql_confidence} >= {confidence_threshold}, skipping human review")
+    return "decide_visualization"
+
 
 def should_visualize_router(state: UnifiedWorkflowState) -> str:
     """
