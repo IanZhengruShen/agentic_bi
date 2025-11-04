@@ -21,6 +21,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 
 from app.agents import create_analysis_agent, AnalysisAgentLangGraph
 from app.services.hitl_service import get_hitl_service, HITLService
+from app.models import get_db
 from app.core.config import settings
 from app.schemas import (
     QueryExecutionRequest,
@@ -32,6 +33,16 @@ from app.schemas import (
     HITLResponseSubmission,
     ErrorResponse,
 )
+
+# Dependency for HITL service
+def get_hitl_service_dependency() -> HITLService:
+    """
+    Dependency function to get HITL service instance.
+
+    Returns in-memory HITL service (without database persistence).
+    For database persistence, endpoints should use get_db() separately.
+    """
+    return get_hitl_service()
 
 # Import Langfuse if available
 try:
@@ -496,7 +507,7 @@ async def list_sessions(
 @router.get("/interventions/{session_id}", response_model=PendingInterventionsResponse)
 async def get_pending_interventions(
     session_id: str,
-    hitl_service: HITLService = Depends(get_hitl_service),
+    hitl_service: HITLService = Depends(get_hitl_service_dependency),
 ):
     """
     Get pending human intervention requests for a session.
@@ -548,7 +559,7 @@ async def get_pending_interventions(
 async def submit_hitl_response(
     request_id: str,
     response: HITLResponseSubmission,
-    hitl_service: HITLService = Depends(get_hitl_service),
+    hitl_service: HITLService = Depends(get_hitl_service_dependency),
     agent: AnalysisAgentLangGraph = Depends(get_agent),
 ):
     """
@@ -608,7 +619,7 @@ async def submit_hitl_response(
 @router.delete("/sessions/{session_id}")
 async def delete_session(
     session_id: str,
-    hitl_service: HITLService = Depends(get_hitl_service),
+    hitl_service: HITLService = Depends(get_hitl_service_dependency),
 ):
     """
     Cancel and delete an analysis session.

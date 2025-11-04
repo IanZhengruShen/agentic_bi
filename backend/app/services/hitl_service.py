@@ -1,14 +1,16 @@
 """
 Human-in-the-Loop (HITL) Service
 
-Lightweight HITL service for PR#4 that provides:
+Enhanced HITL service with persistent storage (PR#12) that provides:
+- Persistent database storage for requests/responses
 - Synchronous human intervention requests
 - WebSocket event broadcasting
 - Timeout handling
 - Response tracking
 - Intervention logging
+- Audit trail and history
 
-Note: This is a simplified version for PR#4. Full HITL implementation is in PR#12.
+Updated in PR#12 to use PostgreSQL for persistence.
 """
 
 import logging
@@ -18,8 +20,15 @@ from typing import Any, Dict, List, Optional
 from uuid import uuid4
 
 from pydantic import BaseModel, Field
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
+from app.repositories.hitl_repository import HITLRepository
+from app.observability.hitl_tracing import (
+    trace_hitl_request,
+    trace_hitl_response,
+    trace_hitl_timeout,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -83,27 +92,38 @@ class HITLService:
     """
     Human-in-the-Loop service for agent confirmation requests.
 
-    For PR#4, this provides basic synchronous intervention handling.
-    Full async WebSocket-based implementation will be in PR#12.
+    Enhanced in PR#12 with persistent database storage, replacing in-memory
+    storage with PostgreSQL for reliability, audit trails, and analytics.
     """
 
-    def __init__(self):
-        """Initialize HITL service."""
+    def __init__(self, db_session: Optional[AsyncSession] = None):
+        """
+        Initialize HITL service.
+
+        Args:
+            db_session: Optional database session for persistence.
+                       If None, falls back to in-memory storage (for backward compatibility).
+        """
         self.enabled = settings.hitl.hitl_enabled
         self.default_timeout = settings.hitl.default_intervention_timeout
         self.timeout_fallback = settings.hitl.timeout_fallback
 
-        # In-memory storage for pending requests
-        # In production, this should be Redis or similar
+        # Database session and repository
+        self.db_session = db_session
+        self.repository = HITLRepository(db_session) if db_session else None
+
+        # In-memory fallback storage (for backward compatibility)
+        # Used when db_session is None or for temporary caching
         self._pending_requests: Dict[str, HumanInputRequest] = {}
         self._responses: Dict[str, HumanResponse] = {}
 
-        # WebSocket connections (placeholder for PR#4)
+        # WebSocket connections (for real-time notifications)
         self._websocket_connections: Dict[str, Any] = {}
 
+        storage_mode = "database" if self.repository else "in-memory"
         logger.info(
             f"HITL Service initialized (enabled={self.enabled}, "
-            f"default_timeout={self.default_timeout}s)"
+            f"default_timeout={self.default_timeout}s, storage={storage_mode})"
         )
 
     async def request_human_input(
@@ -114,23 +134,30 @@ class HITLService:
         options: List[Dict[str, Any]],
         timeout: Optional[int] = None,
         required: bool = True,
+        conversation_id: Optional[str] = None,
+        requester_user_id: Optional[str] = None,
+        company_id: Optional[str] = None,
     ) -> InterventionOutcome:
         """
         Request human input during agent execution.
 
         Flow:
-        1. Create intervention request
+        1. Create intervention request (stored in DB if available)
         2. Broadcast via WebSocket (if available)
         3. Wait for response with timeout
-        4. Return outcome
+        4. Update status in DB
+        5. Return outcome
 
         Args:
-            session_id: Session identifier
+            session_id: Session identifier (workflow_id)
             intervention_type: Type of intervention
             context: Context data for decision
             options: List of available options
             timeout: Optional timeout override
             required: Whether intervention is required
+            conversation_id: Optional conversation ID
+            requester_user_id: Optional user ID who requested intervention
+            company_id: Optional company ID for multi-tenancy
 
         Returns:
             InterventionOutcome with response or fallback
@@ -150,44 +177,90 @@ class HITLService:
         # Convert dict options to HumanInputOption models
         option_models = [HumanInputOption(**opt) for opt in options]
 
-        # Create request
-        request = HumanInputRequest(
-            session_id=session_id,
+        # Create request (persist to DB if available)
+        if self.repository:
+            # Store in database
+            db_request = await self.repository.create_request(
+                workflow_id=session_id,
+                intervention_type=intervention_type,
+                context=context,
+                options=[opt.model_dump() for opt in option_models],
+                timeout_seconds=timeout_seconds,
+                conversation_id=conversation_id,
+                requester_user_id=requester_user_id,
+                company_id=company_id,
+                required=required,
+            )
+            await self.db_session.commit()
+
+            request_id = db_request.request_id
+            requested_at = db_request.requested_at
+            timeout_at = db_request.timeout_at
+
+            # Create Pydantic model for in-memory tracking
+            request = HumanInputRequest(
+                request_id=request_id,
+                session_id=session_id,
+                intervention_type=intervention_type,
+                context=context,
+                options=option_models,
+                timeout_seconds=timeout_seconds,
+                required=required,
+                requested_at=requested_at,
+            )
+        else:
+            # Fallback to in-memory storage
+            request = HumanInputRequest(
+                session_id=session_id,
+                intervention_type=intervention_type,
+                context=context,
+                options=option_models,
+                timeout_seconds=timeout_seconds,
+                required=required,
+            )
+            request_id = request.request_id
+            requested_at = request.requested_at
+            timeout_at = request.timeout_at
+
+        # Store in memory for fast lookup during wait
+        self._pending_requests[request_id] = request
+
+        logger.info(
+            f"Created HITL request {request_id} for session {session_id}: "
+            f"{intervention_type} (timeout: {timeout_seconds}s)"
+        )
+
+        # Trace request creation in Langfuse
+        trace_hitl_request(
+            request_id=request_id,
+            workflow_id=session_id,
             intervention_type=intervention_type,
             context=context,
-            options=option_models,
+            options=[opt.model_dump() for opt in option_models],
             timeout_seconds=timeout_seconds,
             required=required,
         )
 
-        # Store pending request
-        self._pending_requests[request.request_id] = request
-
-        logger.info(
-            f"Created HITL request {request.request_id} for session {session_id}: "
-            f"{intervention_type} (timeout: {timeout_seconds}s)"
-        )
-
-        # Broadcast via WebSocket (placeholder for PR#4)
+        # Broadcast via WebSocket
         await self._broadcast_intervention_request(request)
 
         # Wait for response with timeout
         try:
             response = await self._wait_for_response(
-                request.request_id,
+                request_id,
                 timeout_seconds=timeout_seconds,
             )
 
             # Calculate response time
             response_time = None
             if response:
-                delta = response.responded_at - request.requested_at
+                delta = response.responded_at - requested_at
                 response_time = int(delta.total_seconds() * 1000)
 
             # Determine outcome
             if response:
                 outcome = InterventionOutcome(
-                    request_id=request.request_id,
+                    request_id=request_id,
                     session_id=session_id,
                     intervention_type=intervention_type,
                     outcome=response.action,
@@ -196,27 +269,77 @@ class HITLService:
                     automated_fallback=False,
                     timeout_occurred=False,
                 )
+
+                # Trace response in Langfuse
+                trace_hitl_response(
+                    request_id=request_id,
+                    workflow_id=session_id,
+                    intervention_type=intervention_type,
+                    action=response.action,
+                    response_time_ms=response_time,
+                    feedback=response.feedback,
+                )
+
+                # Update status in DB
+                if self.repository:
+                    await self.repository.update_request_status(
+                        request_id=request_id,
+                        status=response.action,
+                        responded_at=response.responded_at,
+                        response_time_ms=response_time,
+                    )
+                    await self.db_session.commit()
             else:
                 # Timeout occurred
                 outcome = await self._handle_timeout(request)
 
-            # Cleanup
-            self._pending_requests.pop(request.request_id, None)
-            self._responses.pop(request.request_id, None)
+                # Trace timeout in Langfuse
+                trace_hitl_timeout(
+                    request_id=request_id,
+                    workflow_id=session_id,
+                    intervention_type=intervention_type,
+                    timeout_seconds=timeout_seconds,
+                    fallback_action=outcome.outcome,
+                )
+
+                # Update status in DB
+                if self.repository:
+                    await self.repository.update_request_status(
+                        request_id=request_id,
+                        status="timeout",
+                        responded_at=datetime.utcnow(),
+                    )
+                    await self.db_session.commit()
+
+            # Cleanup in-memory cache
+            self._pending_requests.pop(request_id, None)
+            self._responses.pop(request_id, None)
 
             logger.info(
-                f"HITL request {request.request_id} completed: {outcome.outcome} "
+                f"HITL request {request_id} completed: {outcome.outcome} "
                 f"(response_time: {response_time}ms)"
             )
 
             return outcome
 
         except Exception as e:
-            logger.error(f"Error during HITL request {request.request_id}: {e}")
+            logger.error(f"Error during HITL request {request_id}: {e}")
+
+            # Update status in DB
+            if self.repository:
+                try:
+                    await self.repository.update_request_status(
+                        request_id=request_id,
+                        status="error",
+                        responded_at=datetime.utcnow(),
+                    )
+                    await self.db_session.commit()
+                except Exception as db_error:
+                    logger.error(f"Failed to update error status in DB: {db_error}")
 
             # Return fallback outcome
             return InterventionOutcome(
-                request_id=request.request_id,
+                request_id=request_id,
                 session_id=session_id,
                 intervention_type=intervention_type,
                 outcome="error",
@@ -230,11 +353,15 @@ class HITLService:
         data: Optional[Dict[str, Any]] = None,
         feedback: Optional[str] = None,
         modified_sql: Optional[str] = None,
+        responder_user_id: Optional[str] = None,
+        responder_name: Optional[str] = None,
+        responder_email: Optional[str] = None,
     ) -> bool:
         """
         Submit human response to a pending request.
 
-        This would typically be called by the WebSocket handler or API endpoint.
+        This is typically called by the WebSocket handler or API endpoint.
+        Response is persisted to database if available.
 
         Args:
             request_id: Request identifier
@@ -242,21 +369,41 @@ class HITLService:
             data: Optional additional data
             feedback: Optional feedback text
             modified_sql: Optional modified SQL
+            responder_user_id: Optional user ID of responder
+            responder_name: Optional name of responder
+            responder_email: Optional email of responder
 
         Returns:
             True if response was accepted, False otherwise
         """
-        if request_id not in self._pending_requests:
+        # Check if request exists (in memory or DB)
+        request = None
+        if request_id in self._pending_requests:
+            request = self._pending_requests[request_id]
+        elif self.repository:
+            db_request = await self.repository.get_request(request_id)
+            if db_request:
+                # Convert DB model to Pydantic model
+                request = HumanInputRequest(
+                    request_id=db_request.request_id,
+                    session_id=db_request.workflow_id,
+                    intervention_type=db_request.intervention_type,
+                    context=db_request.context,
+                    options=[HumanInputOption(**opt) for opt in db_request.options],
+                    timeout_seconds=db_request.timeout_seconds,
+                    required=db_request.required,
+                    requested_at=db_request.requested_at,
+                )
+
+        if not request:
             logger.warning(f"Response submitted for unknown request: {request_id}")
             return False
-
-        request = self._pending_requests[request_id]
 
         if request.is_expired():
             logger.warning(f"Response submitted for expired request: {request_id}")
             return False
 
-        # Create response
+        # Create response (Pydantic model)
         response = HumanResponse(
             request_id=request_id,
             action=action,
@@ -265,8 +412,26 @@ class HITLService:
             modified_sql=modified_sql,
         )
 
-        # Store response
+        # Store response in memory for immediate lookup
         self._responses[request_id] = response
+
+        # Persist to database if available
+        if self.repository:
+            try:
+                await self.repository.create_response(
+                    request_id=request_id,
+                    action=action,
+                    data=data,
+                    feedback=feedback,
+                    modified_sql=modified_sql,
+                    responder_user_id=responder_user_id,
+                    responder_name=responder_name,
+                    responder_email=responder_email,
+                )
+                await self.db_session.commit()
+            except Exception as e:
+                logger.error(f"Failed to persist response to database: {e}")
+                # Continue anyway - response is in memory
 
         logger.info(f"Response submitted for request {request_id}: {action}")
 
@@ -425,25 +590,52 @@ class HITLService:
             del self._websocket_connections[session_id]
             logger.info(f"Unregistered WebSocket for session {session_id}")
 
-    def get_pending_requests(self, session_id: str) -> List[HumanInputRequest]:
+    async def get_pending_requests(self, session_id: str) -> List[HumanInputRequest]:
         """
         Get all pending requests for a session.
 
+        Checks database first if available, falls back to in-memory storage.
+
         Args:
-            session_id: Session identifier
+            session_id: Session identifier (workflow_id)
 
         Returns:
-            List of pending requests
+            List of pending HumanInputRequest instances
         """
-        return [
-            req
-            for req in self._pending_requests.values()
-            if req.session_id == session_id and not req.is_expired()
-        ]
+        if self.repository:
+            # Get from database
+            db_requests = await self.repository.get_pending_requests(
+                workflow_id=session_id,
+                include_expired=False,
+            )
+
+            # Convert to Pydantic models
+            return [
+                HumanInputRequest(
+                    request_id=req.request_id,
+                    session_id=req.workflow_id,
+                    intervention_type=req.intervention_type,
+                    context=req.context,
+                    options=[HumanInputOption(**opt) for opt in req.options],
+                    timeout_seconds=req.timeout_seconds,
+                    required=req.required,
+                    requested_at=req.requested_at,
+                )
+                for req in db_requests
+            ]
+        else:
+            # Fallback to in-memory storage
+            return [
+                req
+                for req in self._pending_requests.values()
+                if req.session_id == session_id and not req.is_expired()
+            ]
 
     async def cancel_request(self, request_id: str) -> bool:
         """
         Cancel a pending request.
+
+        Updates status in database if available, otherwise removes from memory.
 
         Args:
             request_id: Request identifier
@@ -451,22 +643,42 @@ class HITLService:
         Returns:
             True if cancelled, False if not found
         """
-        if request_id in self._pending_requests:
-            self._pending_requests.pop(request_id)
-            logger.info(f"Cancelled HITL request {request_id}")
-            return True
-        return False
+        # Cancel in database if available
+        if self.repository:
+            success = await self.repository.cancel_request(request_id)
+            if success:
+                await self.db_session.commit()
+                # Also remove from memory cache
+                self._pending_requests.pop(request_id, None)
+                logger.info(f"Cancelled HITL request {request_id}")
+                return True
+            return False
+        else:
+            # Fallback to in-memory storage
+            if request_id in self._pending_requests:
+                self._pending_requests.pop(request_id)
+                logger.info(f"Cancelled HITL request {request_id}")
+                return True
+            return False
 
 
-# Global HITL service instance
-hitl_service = HITLService()
+# Global HITL service instance (without DB - for backward compatibility)
+_global_hitl_service = HITLService()
 
 
-def get_hitl_service() -> HITLService:
+def get_hitl_service(db_session: Optional[AsyncSession] = None) -> HITLService:
     """
-    Get global HITL service instance.
+    Get HITL service instance.
+
+    If db_session is provided, returns a new instance with database persistence.
+    Otherwise, returns the global instance with in-memory storage.
+
+    Args:
+        db_session: Optional database session for persistence
 
     Returns:
         HITLService instance
     """
-    return hitl_service
+    if db_session:
+        return HITLService(db_session=db_session)
+    return _global_hitl_service
