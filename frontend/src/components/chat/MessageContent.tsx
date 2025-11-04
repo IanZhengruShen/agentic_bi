@@ -14,16 +14,24 @@ import {
   Download
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import PlotlyChart from './PlotlyChart';
 
 interface MessageContentProps {
   response: WorkflowResponse;
 }
 
 export default function MessageContent({ response }: MessageContentProps) {
-  const { analysis, insights, recommendations, warnings, errors } = response;
+  const { analysis, visualization, insights, recommendations, warnings, errors } = response;
 
   return (
     <div className="space-y-4">
+      {/* Visualization Chart */}
+      {visualization && visualization.plotly_figure && (
+        <PlotlyChart
+          figure={visualization.plotly_figure}
+          title={visualization.chart_type ? `${visualization.chart_type.charAt(0).toUpperCase() + visualization.chart_type.slice(1)} Chart` : undefined}
+        />
+      )}
       {/* Data Table */}
       {analysis && analysis.data && analysis.data.length > 0 && (
         <Card className="shadow-sm">

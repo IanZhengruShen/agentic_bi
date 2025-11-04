@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { workflowService } from '@/services/workflow.service';
 import { databaseService, type Database } from '@/services/database.service';
+import { websocketService, WorkflowEventType, type WorkflowEvent } from '@/services/websocket.service';
 import type { WorkflowResponse } from '@/types/workflow.types';
 
 export interface Message {
@@ -10,6 +11,10 @@ export interface Message {
   timestamp: Date;
   workflowResponse?: WorkflowResponse; // For agent messages
   isLoading?: boolean; // For loading states
+  progress?: {
+    stage: string;
+    message: string;
+  };
 }
 
 export interface Conversation {
@@ -71,6 +76,9 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
       return;
     }
 
+    // Generate workflow ID
+    const workflowId = crypto.randomUUID();
+
     // Add user message (optimistic)
     const userMessage: Message = {
       id: crypto.randomUUID(),
@@ -79,13 +87,17 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
       timestamp: new Date(),
     };
 
-    // Add loading message
+    // Add loading message with initial progress
     const loadingMessage: Message = {
       id: crypto.randomUUID(),
       role: 'agent',
       content: '',
       timestamp: new Date(),
       isLoading: true,
+      progress: {
+        stage: 'starting',
+        message: 'Starting workflow...'
+      }
     };
 
     const updatedMessages = [
@@ -105,8 +117,97 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
     });
 
     try {
-      // Call backend
+      // Connect WebSocket if not connected (ignore errors - app works without WebSocket)
+      if (!websocketService.isConnected()) {
+        try {
+          await websocketService.connect();
+        } catch (error) {
+          console.warn('[Chat] WebSocket connection failed, continuing without real-time updates');
+        }
+      }
+
+      // Subscribe to workflow events (only if connected)
+      if (websocketService.isConnected()) {
+        websocketService.subscribe(workflowId);
+      }
+
+      // Set up event handler for real-time progress updates
+      const handleEvent = (event: WorkflowEvent) => {
+        const { currentConversation } = get();
+        if (!currentConversation) return;
+
+        // Find loading message
+        const messageIndex = currentConversation.messages.findIndex(
+          m => m.id === loadingMessage.id
+        );
+        if (messageIndex === -1) return;
+
+        // Debug: Log the event to understand structure
+        console.log('[Progress] Event:', event.event_type, 'Stage:', event.stage, 'Agent:', event.agent, 'Message:', event.message);
+
+        // Update progress based on event type
+        let progressMessage = '';
+        let stage = '';
+
+        switch (event.event_type) {
+          case WorkflowEventType.WORKFLOW_STARTED:
+            stage = 'started';
+            progressMessage = event.message || 'Workflow started...';
+            break;
+          case WorkflowEventType.STAGE_STARTED:
+            stage = event.stage || 'processing';
+            // Use backend message if available, otherwise use our detailed message
+            progressMessage = event.message || getStageMessage(event.stage);
+            break;
+          case WorkflowEventType.AGENT_STARTED:
+            stage = event.agent || 'agent';
+            // Use our detailed agent message (more informative than backend's generic message)
+            progressMessage = getAgentMessage(event.agent);
+            console.log('[Progress] Agent detected:', event.agent, 'Message:', progressMessage);
+            break;
+          case WorkflowEventType.STAGE_COMPLETED:
+            // Don't update on stage completion, wait for next stage
+            return;
+          case WorkflowEventType.AGENT_COMPLETED:
+            // Don't update on agent completion, wait for next event
+            return;
+          case WorkflowEventType.WORKFLOW_COMPLETED:
+            // Will be handled by API response
+            return;
+          case WorkflowEventType.WORKFLOW_FAILED:
+            stage = 'failed';
+            progressMessage = event.error || 'Workflow failed';
+            break;
+          default:
+            return;
+        }
+
+        // Update loading message with progress
+        const updatedMessages = [...currentConversation.messages];
+        updatedMessages[messageIndex] = {
+          ...updatedMessages[messageIndex],
+          progress: {
+            stage,
+            message: progressMessage
+          }
+        };
+
+        set({
+          currentConversation: {
+            ...currentConversation,
+            messages: updatedMessages,
+          }
+        });
+      };
+
+      // Register event handler (only if connected)
+      if (websocketService.isConnected()) {
+        websocketService.on(workflowId, handleEvent);
+      }
+
+      // Execute workflow via REST API
       const response = await workflowService.execute({
+        workflow_id: workflowId,
         query: content,
         database: currentConversation.database,
         conversation_id: currentConversation.id,
@@ -115,6 +216,10 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
           include_insights: true,
         },
       });
+
+      // Cleanup WebSocket subscription
+      websocketService.off(workflowId, handleEvent);
+      websocketService.unsubscribe(workflowId);
 
       // Update conversation_id from backend if first message
       const conversationId = response.metadata.conversation_id;
@@ -152,6 +257,9 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
         isLoading: false,
       });
     } catch (error: any) {
+      // Cleanup on error
+      websocketService.unsubscribe(workflowId);
+
       // Remove loading message, show error
       const errorMessage: Message = {
         id: crypto.randomUUID(),
@@ -239,4 +347,36 @@ function generateTitle(firstMessage: string): string {
     ? firstMessage.substring(0, 50) + '...'
     : firstMessage;
   return truncated;
+}
+
+/**
+ * Get user-friendly message for workflow stage
+ */
+function getStageMessage(stage?: string): string {
+  switch (stage) {
+    case 'analysis':
+      return 'Analyzing your query and understanding intent...';
+    case 'deciding':
+      return 'Planning next steps based on analysis...';
+    case 'visualizing':
+      return 'Generating visualization with optimal chart type...';
+    case 'finalizing':
+      return 'Preparing final results and insights...';
+    default:
+      return 'Processing your request...';
+  }
+}
+
+/**
+ * Get user-friendly message for agent activity with detailed descriptions
+ */
+function getAgentMessage(agent?: string): string {
+  switch (agent) {
+    case 'analysis':
+      return '🔍 Analysis Agent: Exploring database schema, generating SQL, and fetching data...';
+    case 'visualization':
+      return '📊 Visualization Agent: Selecting chart type and creating interactive visualizations...';
+    default:
+      return 'AI Agent processing your request...';
+  }
 }

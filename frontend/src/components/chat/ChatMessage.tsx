@@ -29,9 +29,23 @@ export default function ChatMessage({ message }: ChatMessageProps) {
         ) : (
           <div className="space-y-4">
             {message.isLoading ? (
-              <div className="flex items-center space-x-2 text-gray-500">
-                <div className="animate-spin rounded-full h-4 w-4 border-2 border-blue-600 border-t-transparent"></div>
-                <span className="text-sm">Thinking...</span>
+              <div className="space-y-3">
+                <div className="flex items-center space-x-2 text-gray-600">
+                  <div className="animate-spin rounded-full h-4 w-4 border-2 border-blue-600 border-t-transparent"></div>
+                  <span className="text-sm font-medium">
+                    {message.progress?.message || 'Thinking...'}
+                  </span>
+                </div>
+
+                {/* Progress bar */}
+                {message.progress && (
+                  <div className="w-full bg-gray-200 rounded-full h-1.5 overflow-hidden">
+                    <div
+                      className="bg-gradient-to-r from-blue-500 to-purple-500 h-1.5 rounded-full transition-all duration-500 ease-out"
+                      style={{ width: getProgressWidth(message.progress.stage) }}
+                    ></div>
+                  </div>
+                )}
               </div>
             ) : (
               <>
@@ -54,4 +68,30 @@ export default function ChatMessage({ message }: ChatMessageProps) {
       )}
     </div>
   );
+}
+
+/**
+ * Calculate progress bar width based on workflow stage
+ */
+function getProgressWidth(stage: string): string {
+  switch (stage) {
+    case 'starting':
+      return '10%';
+    case 'started':
+      return '15%';
+    case 'analysis':
+      return '35%';
+    case 'deciding':
+      return '55%';
+    case 'visualizing':
+      return '75%';
+    case 'finalizing':
+      return '90%';
+    case 'agent':
+      return '50%';
+    case 'failed':
+      return '100%';
+    default:
+      return '25%';
+  }
 }

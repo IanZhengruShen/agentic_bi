@@ -1,7 +1,8 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { useConversationStore } from '@/stores/conversation.store';
+import { websocketService } from '@/services/websocket.service';
 import ChatMessageList from '@/components/chat/ChatMessageList';
 import ChatInput from '@/components/chat/ChatInput';
 import { Button } from '@/components/ui/button';
@@ -14,6 +15,29 @@ export default function ChatPage() {
     availableDatabases,
     fetchDatabases
   } = useConversationStore();
+
+  const wsConnectedRef = useRef(false);
+
+  // WebSocket lifecycle: Connect on mount, disconnect on unmount
+  useEffect(() => {
+    // Only connect once (prevent React Strict Mode double-mount)
+    if (!wsConnectedRef.current) {
+      wsConnectedRef.current = true;
+
+      websocketService.connect().catch((error) => {
+        console.warn('[Chat] WebSocket connection failed - app will work without real-time updates:', error.message);
+      });
+    }
+
+    // Disconnect only on true unmount
+    return () => {
+      // Don't disconnect in development (React Strict Mode)
+      // Only disconnect in production or when page truly unmounts
+      if (process.env.NODE_ENV === 'production') {
+        websocketService.disconnect();
+      }
+    };
+  }, []);
 
   // Fetch databases on mount
   useEffect(() => {
