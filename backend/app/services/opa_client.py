@@ -52,6 +52,20 @@ class OPAClient:
         Returns:
             bool: True if allowed, False if denied
         """
+        # Skip OPA check if disabled (for testing/development)
+        if not settings.opa.opa_enabled:
+            logger.debug(
+                f"OPA disabled - Allowing by default: User: {user_id}, Action: {action}, Resource: {resource_type}"
+            )
+            # When OPA is disabled, use simple role-based logic
+            # Admins can do everything
+            if role == "admin":
+                return True
+            # For other roles, allow read but deny create/delete
+            if action == "read":
+                return True
+            return False
+
         # Build OPA input payload
         opa_input = {
             "input": {

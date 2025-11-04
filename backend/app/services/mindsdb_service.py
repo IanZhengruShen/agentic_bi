@@ -299,6 +299,104 @@ class MindsDBService:
             logger.error(error_msg)
             raise MindsDBError(error_msg) from e
 
+    async def create_database(
+        self,
+        name: str,
+        engine: str,
+        parameters: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """
+        Create a new database connection in MindsDB.
+
+        Args:
+            name: Database connection name (identifier in MindsDB)
+            engine: Database engine type (postgres, mysql, mariadb, etc.)
+            parameters: Connection parameters (host, port, user, password, database, etc.)
+
+        Returns:
+            Dictionary with creation result:
+            {
+                "success": bool,
+                "database_name": str,
+                "message": str,
+                "error": Optional[str]
+            }
+
+        Raises:
+            MindsDBError: If database creation fails
+
+        Example:
+            >>> await mindsdb.create_database(
+            ...     name="my_postgres_db",
+            ...     engine="postgres",
+            ...     parameters={
+            ...         "host": "localhost",
+            ...         "port": "5432",
+            ...         "user": "admin",
+            ...         "password": "secret",
+            ...         "database": "sales_data"
+            ...     }
+            ... )
+        """
+        try:
+            client = await self._get_client()
+            endpoint = f"{self.api_url}/api/databases"
+
+            # Construct payload according to MindsDB API spec
+            payload = {
+                "database": {
+                    "name": name,
+                    "engine": engine,
+                    "parameters": parameters
+                }
+            }
+
+            logger.info(f"Creating database connection '{name}' with engine '{engine}'")
+
+            response = await client.post(
+                endpoint,
+                json=payload,
+                headers={"Content-Type": "application/json"}
+            )
+
+            if response.status_code in [200, 201]:
+                result = response.json()
+                logger.info(f"Successfully created database connection '{name}'")
+                return {
+                    "success": True,
+                    "database_name": name,
+                    "message": f"Database connection '{name}' created successfully",
+                    "details": result
+                }
+
+            elif response.status_code == 409:
+                # Database already exists
+                error_msg = f"Database connection '{name}' already exists"
+                logger.warning(error_msg)
+                return {
+                    "success": False,
+                    "database_name": name,
+                    "message": error_msg,
+                    "error": "Database already exists"
+                }
+
+            else:
+                # Other errors
+                error_msg = f"Failed to create database: HTTP {response.status_code}"
+                error_detail = response.text
+                logger.error(f"{error_msg}: {error_detail}")
+                raise MindsDBError(f"{error_msg}: {error_detail}")
+
+        except httpx.RequestError as e:
+            error_msg = f"Request error creating database '{name}': {e}"
+            logger.error(error_msg)
+            raise MindsDBError(error_msg) from e
+
+        except Exception as e:
+            error_msg = f"Unexpected error creating database '{name}': {e}"
+            logger.error(error_msg)
+            raise MindsDBError(error_msg) from e
+
     async def get_tables(self, database: str) -> List[Dict[str, Any]]:
         """
         Retrieve list of tables from a specific database.

@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Home, BarChart3, Settings, Sparkles, Clock, TrendingUp } from 'lucide-react';
+import { Home, MessageSquare, Settings, Sparkles, Clock, TrendingUp } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 const navigation = [
@@ -13,11 +13,10 @@ const navigation = [
     description: 'Overview & stats'
   },
   {
-    name: 'Workflows',
-    href: '/dashboard/workflows',
-    icon: BarChart3,
-    description: 'Query & analyze',
-    badge: 'Soon'
+    name: 'Chat',
+    href: '/dashboard/chat',
+    icon: MessageSquare,
+    description: 'Query & analyze'
   },
   {
     name: 'Settings',
