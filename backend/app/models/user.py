@@ -29,6 +29,12 @@ class User(Base):
     role = Column(String(50), default="user")  # admin, analyst, viewer, user
     permissions = Column(JSON, default={})
     preferences = Column(JSON, default={})
+    notification_preferences = Column(JSON, default={
+        "channels": ["slack", "email"],
+        "slack_enabled": True,
+        "email_enabled": True,
+        "intervention_types": None
+    })
 
     # Status
     is_active = Column(Boolean, default=True, index=True)

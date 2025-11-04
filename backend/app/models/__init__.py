@@ -6,6 +6,7 @@ from app.models.user import User
 from app.models.refresh_token import RefreshToken
 from app.models.agent_models import AnalysisSession, HumanIntervention, QueryHistory
 from app.models.visualization_models import Visualization, CustomStyleProfile
+from app.models.hitl_models import HITLRequest, HITLResponse
 
 __all__ = [
     "Base",
@@ -20,4 +21,6 @@ __all__ = [
     "QueryHistory",
     "Visualization",
     "CustomStyleProfile",
+    "HITLRequest",
+    "HITLResponse",
 ]

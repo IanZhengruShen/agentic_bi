@@ -2,14 +2,17 @@
 Human-in-the-Loop (HITL) API Endpoints.
 
 Provides REST API for responding to human intervention requests.
+Enhanced in PR#12 with database persistence.
 """
 
 import logging
 from typing import Optional, Dict, Any
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_active_user
+from app.models import get_db
 from app.models.user import User
 from app.services.hitl_service import get_hitl_service
 
@@ -47,6 +50,7 @@ class HITLResponseResponse(BaseModel):
 async def submit_hitl_response(
     request: HITLResponseRequest,
     current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
 ):
     """
     Submit human response to a pending HITL request.
@@ -79,7 +83,7 @@ async def submit_hitl_response(
         f"action={request.action}"
     )
 
-    hitl_service = get_hitl_service()
+    hitl_service = get_hitl_service(db_session=db)
 
     # Submit response
     success = await hitl_service.submit_response(
@@ -88,6 +92,9 @@ async def submit_hitl_response(
         data=request.data,
         feedback=request.feedback,
         modified_sql=request.modified_sql,
+        responder_user_id=str(current_user.id),
+        responder_name=current_user.full_name,
+        responder_email=current_user.email,
     )
 
     if not success:
@@ -134,6 +141,7 @@ async def submit_hitl_response(
 async def get_pending_requests(
     workflow_id: str,
     current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
 ):
     """
     Get all pending HITL requests for a workflow.
@@ -150,8 +158,8 @@ async def get_pending_requests(
         f"[API:hitl] User {current_user.id} requesting pending requests for workflow {workflow_id}"
     )
 
-    hitl_service = get_hitl_service()
-    pending = hitl_service.get_pending_requests(workflow_id)
+    hitl_service = get_hitl_service(db_session=db)
+    pending = await hitl_service.get_pending_requests(workflow_id)
 
     return {
         "workflow_id": workflow_id,
