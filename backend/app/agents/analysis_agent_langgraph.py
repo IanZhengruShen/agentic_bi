@@ -18,6 +18,9 @@ from langgraph.checkpoint.memory import MemorySaver
 
 from app.agents.workflow_state import WorkflowState, create_initial_state
 from app.agents.workflow_nodes import (
+    identify_intent_node,
+    handle_non_analysis_node,
+    route_by_intent,
     explore_schema_node,
     generate_sql_node,
     human_review_node,
@@ -92,6 +95,9 @@ class AnalysisAgentLangGraph:
         Build the LangGraph workflow.
 
         Workflow structure:
+        0. identify_intent -> [Conditional] route by intent
+           - If DATA_ANALYSIS: proceed to data analysis workflow
+           - If OTHER: handle_non_analysis (greetings, general questions)
         1. explore_schema -> 2. generate_sql
         3. [Conditional] human_review (if needs_review)
         4. validate_sql
@@ -104,6 +110,17 @@ class AnalysisAgentLangGraph:
         """
         # Create graph with our state schema
         workflow = StateGraph(WorkflowState)
+
+        # Add intent identification nodes
+        workflow.add_node(
+            "identify_intent",
+            self._wrap_node(identify_intent_node, llm_client=self.llm_client)
+        )
+
+        workflow.add_node(
+            "handle_non_analysis",
+            self._wrap_node(handle_non_analysis_node)
+        )
 
         # Add nodes with bound services
         workflow.add_node(
@@ -144,7 +161,20 @@ class AnalysisAgentLangGraph:
 
         # Define edges
         # Set entry point using START constant (LangGraph 1.0+ API)
-        workflow.add_edge(START, "explore_schema")
+        workflow.add_edge(START, "identify_intent")
+
+        # identify_intent -> [route by intent]
+        workflow.add_conditional_edges(
+            "identify_intent",
+            route_by_intent,
+            {
+                "explore_schema": "explore_schema",
+                "handle_non_analysis": "handle_non_analysis",
+            }
+        )
+
+        # handle_non_analysis -> END (for non-data-analysis queries)
+        workflow.add_edge("handle_non_analysis", END)
 
         # explore_schema -> generate_sql
         workflow.add_edge("explore_schema", "generate_sql")

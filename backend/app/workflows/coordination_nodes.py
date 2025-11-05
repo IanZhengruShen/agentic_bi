@@ -136,6 +136,9 @@ async def run_analysis_adapter_node(
             "workflow_stage": "analyzed",
             "current_agent": "analysis",
             "analysis_session_id": state["workflow_id"],
+            "query_intent": analysis_result.get("query_intent"),
+            "intent_rejection": analysis_result.get("intent_rejection", False),
+            "final_message": analysis_result.get("final_message"),
             "schema": analysis_result.get("schema"),
             "generated_sql": analysis_result.get("generated_sql"),
             "sql_confidence": analysis_result.get("confidence"),
@@ -550,6 +553,27 @@ async def aggregate_results_node(
 
 
 # === Routing Functions ===
+
+def check_intent_router(state: UnifiedWorkflowState) -> str:
+    """
+    Route after run_analysis based on intent rejection.
+
+    If the query was rejected as non-data-analysis (greetings, general questions),
+    skip directly to END without visualization or aggregation.
+
+    Returns:
+        "rejected" if intent was rejected (non-analysis query)
+        "continue" if should proceed with normal workflow
+    """
+    if state.get("intent_rejection", False):
+        logger.info(
+            f"[check_intent_router] Intent rejected for workflow {state['workflow_id']}: "
+            f"query_intent={state.get('query_intent')}"
+        )
+        return "rejected"
+    else:
+        return "continue"
+
 
 def should_visualize_router(state: UnifiedWorkflowState) -> str:
     """

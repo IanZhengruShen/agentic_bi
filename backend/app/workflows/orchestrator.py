@@ -26,6 +26,7 @@ from app.workflows.coordination_nodes import (
     decide_visualization_node,
     run_visualization_adapter_node,
     aggregate_results_node,
+    check_intent_router,
     should_visualize_router,
 )
 from app.workflows.event_emitter import event_emitter
@@ -169,7 +170,16 @@ class UnifiedWorkflowOrchestrator:
 
         # Define edges: Prompt Chaining
         workflow.add_edge(START, "run_analysis")
-        workflow.add_edge("run_analysis", "decide_visualization")
+
+        # Check intent after analysis - short-circuit if non-analysis query
+        workflow.add_conditional_edges(
+            "run_analysis",
+            check_intent_router,
+            {
+                "continue": "decide_visualization",  # Normal workflow
+                "rejected": END,  # Skip visualization for greetings/non-analysis
+            }
+        )
 
         # Conditional edge: Routing pattern
         # Route based on should_visualize flag
@@ -303,6 +313,9 @@ class UnifiedWorkflowOrchestrator:
 
             # Analysis state (will be populated by AnalysisAgent)
             "analysis_session_id": None,
+            "query_intent": None,
+            "intent_rejection": False,
+            "final_message": None,
             "schema": None,
             "generated_sql": None,
             "sql_confidence": None,

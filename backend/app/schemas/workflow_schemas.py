@@ -175,6 +175,10 @@ class UnifiedWorkflowResponse(BaseModel):
     insights: List[str] = Field(default_factory=list, description="Combined insights")
     recommendations: List[str] = Field(default_factory=list, description="Recommendations")
 
+    # Intent rejection (for non-analysis queries)
+    intent_rejection: bool = Field(default=False, description="Whether query was rejected as non-analysis")
+    final_message: Optional[str] = Field(None, description="Message for non-analysis queries")
+
     # Error handling
     errors: List[str] = Field(default_factory=list, description="Errors encountered")
     warnings: List[str] = Field(default_factory=list, description="Warnings")
@@ -232,15 +236,25 @@ def create_unified_workflow_response(
     workflow_state = convert_numpy_types(workflow_state)
 
     # Create metadata
+    # Handle completed_at: use completed_at if present and not None, otherwise use created_at
+    completed_at_str = workflow_state.get("completed_at") or workflow_state["created_at"]
+
+    # Handle execution_time_ms: calculate if None (for short-circuited workflows)
+    execution_time_ms = workflow_state.get("execution_time_ms")
+    if execution_time_ms is None:
+        created = datetime.fromisoformat(workflow_state["created_at"])
+        completed = datetime.fromisoformat(completed_at_str)
+        execution_time_ms = int((completed - created).total_seconds() * 1000)
+
     metadata = WorkflowMetadata(
         workflow_id=workflow_state["workflow_id"],
         conversation_id=workflow_state["conversation_id"],
         workflow_status=workflow_state.get("workflow_status", "unknown"),
         workflow_stage=workflow_state.get("workflow_stage"),
         agents_executed=workflow_state.get("agents_executed", []),
-        execution_time_ms=workflow_state.get("execution_time_ms", 0),
+        execution_time_ms=execution_time_ms,
         created_at=datetime.fromisoformat(workflow_state["created_at"]),
-        completed_at=datetime.fromisoformat(workflow_state.get("completed_at", workflow_state["created_at"])),
+        completed_at=datetime.fromisoformat(completed_at_str),
     )
 
     # Create analysis results if available
@@ -274,6 +288,8 @@ def create_unified_workflow_response(
         visualization=visualization,
         insights=workflow_state.get("insights", []),
         recommendations=workflow_state.get("recommendations", []),
+        intent_rejection=workflow_state.get("intent_rejection", False),
+        final_message=workflow_state.get("final_message"),
         errors=workflow_state.get("errors", []),
         warnings=workflow_state.get("warnings", []),
         should_visualize=workflow_state.get("should_visualize", False),

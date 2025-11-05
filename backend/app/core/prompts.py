@@ -20,7 +20,8 @@ class PromptType(str, Enum):
     """Enum for different prompt types."""
 
     SQL_GENERATION = "sql_generation"
-    INTENT_CLASSIFICATION = "intent_classification"
+    QUERY_INTENT = "query_intent"  # Simple: data analysis vs other
+    INTENT_CLASSIFICATION = "intent_classification"  # Detailed: aggregate, filter, etc.
     QUERY_VALIDATION = "query_validation"
     DATA_ANALYSIS = "data_analysis"
 
@@ -101,7 +102,7 @@ SQL_GENERATION_TEMPLATE = PromptTemplate(
     description="Generate SQL query from natural language with schema context",
     required_vars=["schema", "query"],
     version="1.0",
-    template_str="""You are an expert SQL query generator. Your task is to convert natural language questions into SQL queries.
+    template_str="""You are an expert SQL query generator. Your task is to convert natural language questions into sqlite SQL queries.
 
 Database Schema:
 {{ schema }}
@@ -145,6 +146,54 @@ Set "needs_review" to true if:
 - Multiple interpretations are possible
 
 Now generate the SQL query:""",
+)
+
+
+# ============================================
+# Query Intent Prompt (Data Analysis vs Other)
+# ============================================
+
+QUERY_INTENT_TEMPLATE = PromptTemplate(
+    name="query_intent",
+    description="Classify if query is data analysis related or not",
+    required_vars=["query"],
+    version="1.0",
+    template_str="""You are an intent classifier for a business intelligence data analyst AI assistant.
+
+Your task is to determine if the user query is requesting data analysis or something else.
+
+User Query: {{ query }}
+
+Classification Categories:
+1. DATA_ANALYSIS - User wants to query, analyze, visualize, or understand data from databases
+   Examples:
+   - "Show me total sales last month"
+   - "What are the top 10 customers by revenue?"
+   - "Compare sales between regions"
+   - "How many active users do we have?"
+   - "Visualize revenue trends over time"
+   - "Calculate average order value"
+   - "Show me the product performance metrics"
+
+2. OTHER - User is asking about something unrelated to data analysis
+   Examples:
+   - "Hello" / "Hi" / "How are you?"
+   - "What's the weather today?"
+   - "Tell me a joke"
+   - "Who is the president?"
+   - "Help me write code"
+   - "What can you do?" (general capability question, not about data)
+   - "Explain quantum physics"
+   - "Write me an email"
+
+Return your response in the following JSON format:
+{
+  "intent": "DATA_ANALYSIS" or "OTHER",
+  "confidence": 0.95,
+  "reasoning": "brief explanation of classification"
+}
+
+Classify the query:""",
 )
 
 
@@ -316,6 +365,7 @@ class PromptRegistry:
         """Initialize prompt registry with default templates."""
         self._templates: Dict[PromptType, PromptTemplate] = {
             PromptType.SQL_GENERATION: SQL_GENERATION_TEMPLATE,
+            PromptType.QUERY_INTENT: QUERY_INTENT_TEMPLATE,
             PromptType.INTENT_CLASSIFICATION: INTENT_CLASSIFICATION_TEMPLATE,
             PromptType.QUERY_VALIDATION: QUERY_VALIDATION_TEMPLATE,
             PromptType.DATA_ANALYSIS: DATA_ANALYSIS_TEMPLATE,

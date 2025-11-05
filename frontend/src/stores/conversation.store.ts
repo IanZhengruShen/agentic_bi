@@ -369,6 +369,12 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
 
 // Helper functions
 function generateAgentSummary(response: WorkflowResponse): string {
+  // Check for intent rejection (non-analysis queries like greetings)
+  // Return empty string - MessageContent component will handle display
+  if (response.intent_rejection && response.final_message) {
+    return '';
+  }
+
   const { analysis, insights } = response;
 
   if (analysis && analysis.row_count > 0) {

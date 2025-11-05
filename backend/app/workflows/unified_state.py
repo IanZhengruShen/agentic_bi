@@ -44,6 +44,9 @@ class UnifiedWorkflowState(TypedDict):
 
     # === AnalysisAgent State (embedded) ===
     analysis_session_id: Optional[str]
+    query_intent: Optional[str]  # DATA_ANALYSIS or OTHER
+    intent_rejection: bool  # True if query was rejected as non-analysis
+    final_message: Optional[str]  # Message for non-analysis queries
     schema: Optional[Dict[str, Any]]
     generated_sql: Optional[str]
     sql_confidence: Optional[float]

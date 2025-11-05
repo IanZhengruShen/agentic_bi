@@ -58,6 +58,8 @@ export interface WorkflowResponse {
   visualization: VisualizationResults | null;
   insights: string[];
   recommendations: string[];
+  intent_rejection: boolean;
+  final_message: string | null;
   errors: string[];
   warnings: string[];
   should_visualize: boolean;
