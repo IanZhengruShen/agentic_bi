@@ -61,6 +61,7 @@ class DatabaseService:
             # 1. Fetch all databases from MindsDB
             all_databases = await self.mindsdb.get_databases()
             logger.info(f"Retrieved {len(all_databases)} databases from MindsDB")
+            logger.info(f"Checking access for user_id={user_id}, role={role}, company_id={company_id}")
 
             # 2. Filter by user permissions via OPA
             accessible_databases = []
@@ -80,6 +81,8 @@ class DatabaseService:
                     resource_data={"database_name": db_name}
                 )
 
+                logger.info(f"OPA check: database={db_name}, role={role}, has_access={has_access}")
+
                 if has_access:
                     # Format database info
                     accessible_databases.append({
@@ -90,7 +93,7 @@ class DatabaseService:
                     })
 
             logger.info(
-                f"User {user_id} has access to {len(accessible_databases)}/{len(all_databases)} databases"
+                f"User {user_id} (role={role}) has access to {len(accessible_databases)}/{len(all_databases)} databases: {[db['name'] for db in accessible_databases]}"
             )
 
             return accessible_databases

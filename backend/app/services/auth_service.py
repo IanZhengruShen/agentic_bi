@@ -112,11 +112,13 @@ class AuthService:
             self.db.add(company)
             await self.db.flush()
 
-        # Determine role: first user in system is admin, rest are users
-        result = await self.db.execute(select(User))
-        existing_users = result.scalars().all()
-        is_first_user = len(existing_users) == 0
-        user_role = "admin" if is_first_user else "user"
+        # Determine role: first user in company is admin, rest are users
+        result = await self.db.execute(
+            select(User).where(User.company_id == company.id)
+        )
+        existing_users_in_company = result.scalars().all()
+        is_first_user_in_company = len(existing_users_in_company) == 0
+        user_role = "admin" if is_first_user_in_company else "user"
 
         # Create user (company_id is always set now)
         user = User(

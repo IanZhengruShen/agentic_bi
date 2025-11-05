@@ -54,8 +54,8 @@ class OPAClient:
         """
         # Skip OPA check if disabled (for testing/development)
         if not settings.opa.opa_enabled:
-            logger.debug(
-                f"OPA disabled - Allowing by default: User: {user_id}, Action: {action}, Resource: {resource_type}"
+            logger.warning(
+                f"⚠️  OPA DISABLED - Using fallback logic: User: {user_id}, Role: {role}, Action: {action}, Resource: {resource_type}"
             )
             # When OPA is disabled, use simple role-based logic
             # Admins can do everything
@@ -85,9 +85,9 @@ class OPAClient:
         try:
             async with httpx.AsyncClient() as client:
                 # Call external OPA service
-                # Adjust the path based on your OPA policy structure
+                # Path: /v1/data/app/rbac/allow
                 response = await client.post(
-                    f"{self.opa_url}/v1/data/agentic_bi/allow",
+                    f"{self.opa_url}/v1/data/app/rbac/allow",
                     json=opa_input,
                     timeout=self.timeout,
                     headers={"Content-Type": "application/json"}
@@ -102,7 +102,12 @@ class OPAClient:
 
                 result = response.json()
                 # OPA returns {"result": true/false}
-                return result.get("result", False)
+                decision = result.get("result", False)
+                logger.debug(
+                    f"OPA decision: {decision} for user_id={user_id}, role={role}, action={action}, "
+                    f"resource_type={resource_type}, resource_data={resource_data}"
+                )
+                return decision
 
         except httpx.TimeoutException:
             logger.error(f"OPA request timeout after {self.timeout}s")

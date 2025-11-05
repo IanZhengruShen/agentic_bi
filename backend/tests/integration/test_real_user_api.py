@@ -136,17 +136,17 @@ class TestRoleManagement:
 
     def test_non_admin_cannot_change_roles(self, api_base_url, auth_headers):
         """Test that non-admin users cannot change roles."""
+        # Use a dummy user_id (endpoint will return 403 before checking if user exists)
         response = requests.put(
-            f"{api_base_url}/users/role",
+            f"{api_base_url}/users/00000000-0000-0000-0000-000000000000/role",
             headers=auth_headers,
             json={
-                "user_id": "some-user-id",
                 "new_role": "admin"
             },
             timeout=30
         )
 
-        # Should be forbidden
+        # Should be forbidden (403) because user is not admin
         assert response.status_code == 403, f"Expected 403, got {response.status_code}"
 
 
@@ -241,9 +241,9 @@ class TestUserPermissions:
 
         # Cannot change roles
         role_response = requests.put(
-            f"{api_base_url}/users/role",
+            f"{api_base_url}/users/00000000-0000-0000-0000-000000000000/role",
             headers=auth_headers,
-            json={"user_id": "any", "new_role": "admin"},
+            json={"new_role": "admin"},
             timeout=30
         )
         assert role_response.status_code == 403
