@@ -5,7 +5,13 @@ import { usePathname } from 'next/navigation';
 import { Home, MessageSquare, Settings, Sparkles, Clock, TrendingUp } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
-const navigation = [
+const navigation: Array<{
+  name: string;
+  href: string;
+  icon: any;
+  description: string;
+  badge?: string;
+}> = [
   {
     name: 'Dashboard',
     href: '/dashboard',
@@ -22,8 +28,7 @@ const navigation = [
     name: 'Settings',
     href: '/dashboard/settings',
     icon: Settings,
-    description: 'Preferences',
-    badge: 'Soon'
+    description: 'Application settings'
   },
 ];
 
@@ -45,7 +50,10 @@ export function Sidebar() {
       <nav className="flex-1 px-3 py-4 space-y-1">
         {navigation.map((item) => {
           const Icon = item.icon;
-          const isActive = pathname === item.href;
+          // For Settings, match /dashboard/settings and /dashboard/settings/*
+          const isActive = item.href === '/dashboard/settings'
+            ? pathname.startsWith('/dashboard/settings')
+            : pathname === item.href;
 
           return (
             <Link

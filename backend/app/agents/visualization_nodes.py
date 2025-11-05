@@ -144,11 +144,17 @@ async def apply_theme_node(
     Apply Plotly theme and custom styling.
 
     Supports:
+    - User's chart template from preferences (builtin or custom)
     - Built-in Plotly themes
     - Custom style profiles (loaded from database)
     - Logo placement
     - Watermarks
     - Ad-hoc customizations
+
+    Priority order:
+    1. User's chart template (from preferences) - HIGHEST PRIORITY
+    2. Custom style profile (legacy)
+    3. Plotly theme (fallback)
 
     Updates state:
     - plotly_figure (updated with styling)
@@ -160,13 +166,110 @@ async def apply_theme_node(
         import plotly.graph_objects as go
         fig = go.Figure(state["plotly_figure"])
 
-        # Apply theme with custom profile and customizations
-        fig = await apply_plotly_theme(
-            fig=fig,
-            theme=state.get("plotly_theme", "plotly"),
-            custom_profile=state.get("custom_style_profile"),  # Loaded from DB if available
-            customizations=state.get("theme_customizations"),
-        )
+        # Check if user has a chart template preference
+        user_template = state.get("user_chart_template")
+
+        if user_template:
+            template_type = user_template.get("type")
+
+            if template_type == "builtin":
+                # Apply builtin Plotly template
+                template_name = user_template.get("name", "plotly_white")
+                logger.info(f"[Node: apply_theme] Applying user's builtin template: {template_name}")
+                fig.update_layout(template=template_name)
+
+            elif template_type == "custom":
+                # Apply custom template
+                custom_def = user_template.get("custom_definition", {})
+                logger.info("[Node: apply_theme] Applying user's custom template")
+
+                # Apply layout settings
+                if custom_def.get("layout"):
+                    layout_settings = custom_def["layout"]
+
+                    # Build update dict for layout
+                    layout_update = {}
+                    if layout_settings.get("font"):
+                        layout_update["font"] = layout_settings["font"]
+                    if layout_settings.get("title"):
+                        layout_update["title"] = layout_settings["title"]
+                    if layout_settings.get("colorway"):
+                        layout_update["colorway"] = layout_settings["colorway"]
+                    if layout_settings.get("plot_bgcolor"):
+                        layout_update["plot_bgcolor"] = layout_settings["plot_bgcolor"]
+                    if layout_settings.get("paper_bgcolor"):
+                        layout_update["paper_bgcolor"] = layout_settings["paper_bgcolor"]
+                    if layout_settings.get("hovermode"):
+                        layout_update["hovermode"] = layout_settings["hovermode"]
+
+                    if layout_update:
+                        fig.update_layout(**layout_update)
+
+                    # IMPORTANT: Update trace colors to use colorway
+                    # Plotly Express sets explicit colors on traces which override colorway
+                    # We need to update trace marker colors to use the custom colorway
+                    if layout_settings.get("colorway"):
+                        colorway = layout_settings["colorway"]
+                        for i, trace in enumerate(fig.data):
+                            color_index = i % len(colorway)
+                            trace_color = colorway[color_index]
+
+                            # Update marker colors for different trace types
+                            if trace.type == 'pie':
+                                # Pie charts use marker.colors (plural) for multiple slices
+                                if hasattr(trace, 'marker'):
+                                    trace.marker.colors = colorway
+                            elif hasattr(trace, 'marker'):
+                                # For bar, scatter, box, etc.
+                                # Only update if it's not an array (individual point colors)
+                                if not isinstance(trace.marker.color, (list, tuple)):
+                                    trace.marker.color = trace_color
+
+                            if hasattr(trace, 'line') and trace.type in ['scatter', 'line']:
+                                # For line charts
+                                trace.line.color = trace_color
+
+                        logger.info(f"[Node: apply_theme] Applied colorway to {len(fig.data)} traces")
+
+                # Apply logo if present
+                if layout_settings.get("logo_url"):
+                    logo_url = layout_settings["logo_url"]
+                    logo_pos = layout_settings.get("logo_position", {})
+
+                    logger.info(f"[Node: apply_theme] Adding logo from custom template")
+                    fig.add_layout_image(
+                        dict(
+                            source=logo_url,
+                            xref="paper",
+                            yref="paper",
+                            x=logo_pos.get("x", 1),
+                            y=logo_pos.get("y", 1.05),
+                            sizex=logo_pos.get("sizex", 0.15),
+                            sizey=logo_pos.get("sizey", 0.15),
+                            xanchor=logo_pos.get("xanchor", "right"),
+                            yanchor=logo_pos.get("yanchor", "bottom"),
+                            layer="above"
+                        )
+                    )
+
+                # Apply data settings (chart-specific) if available
+                # Note: This is more complex and depends on the chart type
+                # For now, we focus on layout settings which affect all chart types
+                data_settings = custom_def.get("data", {})
+                if data_settings:
+                    logger.debug(f"[Node: apply_theme] Data-specific settings available but not yet applied")
+
+        else:
+            # Fallback to legacy theme system
+            logger.info("[Node: apply_theme] No user template, using legacy theme system")
+
+            # Apply theme with custom profile and customizations
+            fig = await apply_plotly_theme(
+                fig=fig,
+                theme=state.get("plotly_theme", "plotly"),
+                custom_profile=state.get("custom_style_profile"),  # Loaded from DB if available
+                customizations=state.get("theme_customizations"),
+            )
 
         # Convert back to dict
         plotly_figure_dict = fig.to_dict()

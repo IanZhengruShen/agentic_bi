@@ -7,6 +7,8 @@ from app.api.workflows import router as workflows_router
 from app.api.websocket import router as websocket_router
 from app.api.hitl import router as hitl_router
 from app.api.databases import router as databases_router
+from app.api.chart_preferences import router as chart_preferences_router
+from app.api.users import router as users_router
 
 __all__ = [
     "agents_router",
@@ -16,4 +18,6 @@ __all__ = [
     "websocket_router",
     "hitl_router",
     "databases_router",
+    "chart_preferences_router",
+    "users_router",
 ]

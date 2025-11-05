@@ -388,7 +388,9 @@ async def run_visualization_adapter_node(
             custom_style_profile_id=state.get("options", {}).get("custom_style_profile_id"),
             options={
                 "include_insights": state.get("options", {}).get("include_insights", True),
-            }
+            },
+            # Pass user's chart template from preferences
+            user_chart_template=state.get("options", {}).get("user_chart_template"),
         )
 
         # Configure Langfuse for subgraph

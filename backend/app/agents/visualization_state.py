@@ -39,6 +39,7 @@ class VisualizationState(TypedDict):
     custom_style_profile_id: Optional[str]  # Link to CustomStyleProfile
     custom_style_profile: Optional[Dict[str, Any]]  # Loaded profile data
     theme_customizations: Optional[Dict[str, Any]]  # Ad-hoc style overrides
+    user_chart_template: Optional[Dict[str, Any]]  # User's chart template from preferences
 
     # Insights
     chart_insights: Annotated[List[str], add]  # Accumulated insights
@@ -62,6 +63,7 @@ def create_initial_visualization_state(
     plotly_theme: str = "plotly",
     custom_style_profile_id: Optional[str] = None,
     options: Optional[Dict[str, Any]] = None,
+    user_chart_template: Optional[Dict[str, Any]] = None,
 ) -> VisualizationState:
     """
     Create initial visualization state.
@@ -76,6 +78,7 @@ def create_initial_visualization_state(
         plotly_theme: Base Plotly theme
         custom_style_profile_id: Optional custom style profile ID
         options: User options and preferences
+        user_chart_template: User's chart template from preferences
 
     Returns:
         Initial VisualizationState
@@ -109,6 +112,7 @@ def create_initial_visualization_state(
         custom_style_profile_id=custom_style_profile_id,
         custom_style_profile=None,
         theme_customizations=options.get("style_overrides") if options else None,
+        user_chart_template=user_chart_template,
 
         # Insights
         chart_insights=[],
