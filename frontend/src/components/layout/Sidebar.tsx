@@ -5,7 +5,13 @@ import { usePathname } from 'next/navigation';
 import { Home, MessageSquare, Settings, Sparkles, Clock, TrendingUp } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
-const navigation = [
+const navigation: Array<{
+  name: string;
+  href: string;
+  icon: any;
+  description: string;
+  badge?: string;
+}> = [
   {
     name: 'Dashboard',
     href: '/dashboard',
@@ -19,11 +25,10 @@ const navigation = [
     description: 'Query & analyze'
   },
   {
-    name: 'Settings',
-    href: '/dashboard/settings',
+    name: 'Chart Settings',
+    href: '/dashboard/settings/charts',
     icon: Settings,
-    description: 'Preferences',
-    badge: 'Soon'
+    description: 'Chart preferences'
   },
 ];
 

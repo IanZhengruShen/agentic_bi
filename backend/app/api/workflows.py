@@ -126,6 +126,16 @@ async def execute_unified_workflow(
         )
 
     try:
+        # Load user chart preferences
+        user_prefs = current_user.preferences or {}
+        chart_template = user_prefs.get("chart_preferences", {}).get("chart_template")
+
+        # Merge user chart template into options
+        options_dict = request.options.model_dump()
+        if chart_template:
+            options_dict["user_chart_template"] = chart_template
+            logger.info(f"[API:workflows] Loaded user chart template: {chart_template.get('type')}")
+
         # Create Langfuse handler for this execution
         langfuse_handler = None
         if LANGFUSE_AVAILABLE:
@@ -152,7 +162,7 @@ async def execute_unified_workflow(
             company_id=str(current_user.company_id) if current_user.company_id else "default",
             workflow_id=request.workflow_id,  # Optional: allows client to subscribe before execution
             conversation_id=request.conversation_id,  # Pass through for conversation memory
-            options=request.options.model_dump(),
+            options=options_dict,
         )
 
         # Convert to response schema
