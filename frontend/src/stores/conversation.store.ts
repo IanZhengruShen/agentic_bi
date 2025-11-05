@@ -3,6 +3,7 @@ import { workflowService } from '@/services/workflow.service';
 import { databaseService, type Database } from '@/services/database.service';
 import { websocketService, WorkflowEventType, type WorkflowEvent } from '@/services/websocket.service';
 import type { WorkflowResponse } from '@/types/workflow.types';
+import { ChartConfig, ChartTemplate } from '@/types/chart.types';
 
 export interface Message {
   id: string;
@@ -35,6 +36,10 @@ interface ConversationState {
   availableDatabases: Database[];
   isLoadingDatabases: boolean;
 
+  // Chart preferences (PR#15 - Settings page)
+  chartTemplates: ChartTemplate[]; // Saved chart style templates
+  defaultChartConfig: ChartConfig; // User's chart preferences (auto-applied to all charts)
+
   // Actions
   startNewConversation: (database: string) => void;
   sendMessage: (content: string) => Promise<void>;
@@ -43,6 +48,12 @@ interface ConversationState {
   setDatabase: (database: string) => void;
   clearError: () => void;
   fetchDatabases: () => Promise<void>;
+
+  // Chart preference actions (PR#15 - Settings page)
+  saveChartTemplate: (template: ChartTemplate) => void;
+  loadChartTemplate: (templateId: string) => ChartConfig | undefined;
+  deleteChartTemplate: (templateId: string) => void;
+  setDefaultChartConfig: (config: ChartConfig) => void;
 }
 
 export const useConversationStore = create<ConversationState>((set, get) => ({
@@ -52,6 +63,13 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
   error: null,
   availableDatabases: [],
   isLoadingDatabases: false,
+
+  // Chart preferences (PR#15 - Settings page)
+  chartTemplates: [],
+  defaultChartConfig: {
+    colorScheme: { id: 'default', name: 'Default', colors: [] },
+    layout: { showLegend: true, showGrid: true },
+  },
 
   startNewConversation: (database: string) => {
     const newConversation: Conversation = {
@@ -328,6 +346,25 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
       });
     }
   },
+
+  // Chart preference actions (PR#15 - Settings page)
+  saveChartTemplate: (template) =>
+    set((state) => ({
+      chartTemplates: [...state.chartTemplates, template],
+    })),
+
+  loadChartTemplate: (templateId) => {
+    const template = get().chartTemplates.find((t) => t.id === templateId);
+    return template?.config;
+  },
+
+  deleteChartTemplate: (templateId) =>
+    set((state) => ({
+      chartTemplates: state.chartTemplates.filter((t) => t.id !== templateId),
+    })),
+
+  setDefaultChartConfig: (config) =>
+    set({ defaultChartConfig: config }),
 }));
 
 // Helper functions
