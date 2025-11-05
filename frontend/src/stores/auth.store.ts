@@ -13,6 +13,7 @@ interface AuthState {
   isAuthenticated: boolean;
   isLoading: boolean;
   error: string | null;
+  hasInitialized: boolean;
 
   // Actions
   login: (credentials: LoginRequest) => Promise<void>;
@@ -28,6 +29,7 @@ export const useAuthStore = create<AuthState>((set) => ({
   isAuthenticated: false,
   isLoading: false,
   error: null,
+  hasInitialized: false,
 
   // Login action
   login: async (credentials) => {
@@ -70,19 +72,21 @@ export const useAuthStore = create<AuthState>((set) => ({
 
   // Load user from storage/API
   loadUser: async () => {
+    // Set loading immediately to prevent premature redirects
+    set({ isLoading: true });
+
     if (!authService.isAuthenticated()) {
-      set({ user: null, isAuthenticated: false });
+      set({ user: null, isAuthenticated: false, isLoading: false, hasInitialized: true });
       return;
     }
 
-    set({ isLoading: true });
     try {
       const user = await authService.getCurrentUser();
-      set({ user, isAuthenticated: true, isLoading: false });
+      set({ user, isAuthenticated: true, isLoading: false, hasInitialized: true });
     } catch (error) {
       console.error('Failed to load user:', error);
       storage.clearAuth();
-      set({ user: null, isAuthenticated: false, isLoading: false });
+      set({ user: null, isAuthenticated: false, isLoading: false, hasInitialized: true });
     }
   },
 

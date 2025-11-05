@@ -27,7 +27,8 @@ async def register(
     Register a new user.
 
     Creates a new user account and optionally a new company if company_name is provided.
-    First user in a company is automatically assigned admin role.
+    First user in the entire system is automatically assigned admin role.
+    All subsequent users receive 'user' role by default.
 
     **Args:**
     - email: Valid email address (required)

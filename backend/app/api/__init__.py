@@ -9,6 +9,7 @@ from app.api.hitl import router as hitl_router
 from app.api.databases import router as databases_router
 from app.api.chart_preferences import router as chart_preferences_router
 from app.api.users import router as users_router
+from app.api.debug import router as debug_router
 
 __all__ = [
     "agents_router",
@@ -20,4 +21,5 @@ __all__ = [
     "databases_router",
     "chart_preferences_router",
     "users_router",
+    "debug_router",
 ]

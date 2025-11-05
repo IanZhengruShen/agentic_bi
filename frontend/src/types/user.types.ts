@@ -9,6 +9,7 @@ export interface User {
   email: string;
   full_name: string | null;
   company_id: string | null;
+  company_name?: string | null;
   department: string | null;
   role: 'admin' | 'analyst' | 'viewer' | 'user';
   is_active: boolean;
@@ -80,6 +81,7 @@ export interface UserProfile {
   role: UserRole;
   is_active: boolean;
   company_id?: string;
+  company_name?: string;
   department?: string;
 }
 
@@ -89,7 +91,6 @@ export interface UserProfileUpdate {
 }
 
 export interface RoleUpdateRequest {
-  user_id: string;
   new_role: UserRole;
 }
 

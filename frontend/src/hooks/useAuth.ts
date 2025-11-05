@@ -29,17 +29,21 @@ export function useAuth() {
 
 export function useProtectedRoute() {
   const router = useRouter();
-  const { isAuthenticated, isLoading, loadUser } = useAuthStore();
+  const { isAuthenticated, isLoading, hasInitialized, loadUser } = useAuthStore();
 
   useEffect(() => {
-    loadUser();
-  }, [loadUser]);
+    // Only load user once on mount
+    if (!hasInitialized) {
+      loadUser();
+    }
+  }, [hasInitialized, loadUser]);
 
   useEffect(() => {
-    if (!isLoading && !isAuthenticated) {
+    // Only redirect after initialization is complete
+    if (hasInitialized && !isLoading && !isAuthenticated) {
       router.push('/login');
     }
-  }, [isAuthenticated, isLoading, router]);
+  }, [isAuthenticated, isLoading, hasInitialized, router]);
 
   return { isAuthenticated, isLoading };
 }

@@ -102,8 +102,7 @@ export function ProfileAccountSettings() {
 
     try {
       setIsChangingRole(true);
-      await updateUserRole({
-        user_id: userProfile.id,
+      await updateUserRole(userProfile.id, {
         new_role: selectedRole,
       });
 
@@ -224,6 +223,23 @@ export function ProfileAccountSettings() {
                 Email cannot be changed. Contact support if needed.
               </p>
             </div>
+
+            {/* Company (read-only) */}
+            {userProfile.company_name && (
+              <div className="space-y-2">
+                <Label htmlFor="company">Company</Label>
+                <Input
+                  id="company"
+                  type="text"
+                  value={userProfile.company_name}
+                  disabled
+                  className="bg-gray-50"
+                />
+                <p className="text-xs text-gray-500">
+                  Company is determined by your email domain.
+                </p>
+              </div>
+            )}
 
             {/* Full Name */}
             <div className="space-y-2">

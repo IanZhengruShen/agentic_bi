@@ -89,24 +89,43 @@ class AuthService:
                 detail="Email already registered"
             )
 
-        # Create company if provided
-        company = None
-        if user_data.company_name:
+        # Create or find company (required for multi-tenancy)
+        email_domain = user_data.email.split("@")[1] if "@" in user_data.email else "unknown"
+        company_name = user_data.company_name or f"{email_domain.split('.')[0].capitalize()} Company"
+
+        # Check if company exists with this name AND domain (to prevent duplicates)
+        # Use first() to gracefully handle legacy duplicates
+        result = await self.db.execute(
+            select(Company).where(
+                Company.domain == email_domain,
+                Company.name == company_name
+            )
+        )
+        company = result.scalars().first()
+
+        # If no company exists, create one
+        if not company:
             company = Company(
-                name=user_data.company_name,
-                domain=user_data.email.split("@")[1] if "@" in user_data.email else None
+                name=company_name,
+                domain=email_domain
             )
             self.db.add(company)
             await self.db.flush()
 
-        # Create user
+        # Determine role: first user in system is admin, rest are users
+        result = await self.db.execute(select(User))
+        existing_users = result.scalars().all()
+        is_first_user = len(existing_users) == 0
+        user_role = "admin" if is_first_user else "user"
+
+        # Create user (company_id is always set now)
         user = User(
             email=user_data.email,
             password_hash=get_password_hash(user_data.password),
             full_name=user_data.full_name,
             department=user_data.department,
-            company_id=company.id if company else None,
-            role="admin" if company else "user"  # First user in company is admin
+            company_id=company.id,
+            role=user_role
         )
 
         self.db.add(user)
