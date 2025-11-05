@@ -9,7 +9,6 @@ import { Button } from '@/components/ui/button';
 import { PlusCircle } from 'lucide-react';
 import { useHITL } from '@/hooks/useHITL';
 import { HITLApprovalModal } from '@/components/hitl/HITLApprovalModal';
-import { HITLDebugPanel } from '@/components/hitl/HITLDebugPanel';
 
 export default function ChatPage() {
   const {
@@ -94,9 +93,6 @@ export default function ChatPage() {
 
       {/* HITL Modal (shows when pendingRequest exists) */}
       <HITLApprovalModal />
-
-      {/* Debug Panel (dev mode only) */}
-      <HITLDebugPanel />
     </div>
   );
 }
