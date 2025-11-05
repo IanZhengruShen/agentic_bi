@@ -16,6 +16,7 @@ from app.api import (
     hitl_router,
     databases_router,
     chart_preferences_router,
+    users_router,
 )
 
 # Create FastAPI app
@@ -48,6 +49,9 @@ app.include_router(databases_router)
 
 # Include chart preferences router
 app.include_router(chart_preferences_router)
+
+# Include users router
+app.include_router(users_router)
 
 # Include WebSocket router
 app.include_router(websocket_router)

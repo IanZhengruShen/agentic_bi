@@ -25,10 +25,10 @@ const navigation: Array<{
     description: 'Query & analyze'
   },
   {
-    name: 'Chart Settings',
-    href: '/dashboard/settings/charts',
+    name: 'Settings',
+    href: '/dashboard/settings',
     icon: Settings,
-    description: 'Chart preferences'
+    description: 'Application settings'
   },
 ];
 
@@ -50,7 +50,10 @@ export function Sidebar() {
       <nav className="flex-1 px-3 py-4 space-y-1">
         {navigation.map((item) => {
           const Icon = item.icon;
-          const isActive = pathname === item.href;
+          // For Settings, match /dashboard/settings and /dashboard/settings/*
+          const isActive = item.href === '/dashboard/settings'
+            ? pathname.startsWith('/dashboard/settings')
+            : pathname === item.href;
 
           return (
             <Link
