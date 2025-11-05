@@ -16,6 +16,7 @@ from datetime import datetime
 from app.agents.workflow_state import WorkflowState
 from app.core.llm import LLMClient
 from app.core.config import settings
+from app.core.prompts import PromptType, get_prompt
 from app.services.mindsdb_service import MindsDBService
 from app.services.hitl_service import HITLService
 from app.tools.sql_tools import (
@@ -25,8 +26,160 @@ from app.tools.sql_tools import (
     execute_sql_query,
 )
 from app.tools.analysis_tools import analyze_data
+import json
 
 logger = logging.getLogger(__name__)
+
+
+# ============================================
+# Node: Identify Query Intent
+# ============================================
+
+
+async def identify_intent_node(
+    state: WorkflowState,
+    llm_client: LLMClient,
+) -> Dict[str, Any]:
+    """
+    Node: Identify if query is data analysis related or not.
+
+    This is the first node in the workflow. It classifies whether
+    the user query requires data analysis (SQL generation, querying)
+    or is something else (greeting, general question, etc.).
+
+    Args:
+        state: Current workflow state
+        llm_client: LLM client instance
+
+    Returns:
+        State updates with intent classification
+    """
+    logger.info(f"[Node: identify_intent] Query: {state['query'][:100]}...")
+
+    try:
+        # Get intent classification prompt
+        intent_prompt = get_prompt(PromptType.QUERY_INTENT)
+        prompt = intent_prompt.render(query=state["query"])
+
+        # Call LLM to classify intent
+        llm_response = await llm_client.chat_completion_with_system(
+            system_message="You are an intent classifier for a business intelligence system.",
+            user_message=prompt,
+            temperature=0.1,  # Low temperature for classification
+            max_tokens=200,
+        )
+
+        response = llm_response.content
+
+        # Parse JSON response
+        try:
+            intent_result = json.loads(response)
+            intent = intent_result.get("intent", "OTHER")
+            confidence = intent_result.get("confidence", 0.0)
+            reasoning = intent_result.get("reasoning", "")
+
+            logger.info(
+                f"Intent classified as: {intent} "
+                f"(confidence: {confidence:.2f}, reasoning: {reasoning})"
+            )
+
+            return {
+                "query_intent": intent,
+                "intent_confidence": confidence,
+                "intent_reasoning": reasoning,
+                "workflow_status": "intent_identified",
+            }
+
+        except json.JSONDecodeError as e:
+            logger.warning(f"Failed to parse intent response as JSON: {e}")
+            # Fallback: check if response contains "DATA_ANALYSIS"
+            if "DATA_ANALYSIS" in response.upper():
+                return {
+                    "query_intent": "DATA_ANALYSIS",
+                    "intent_confidence": 0.5,
+                    "intent_reasoning": "Fallback classification from text response",
+                    "workflow_status": "intent_identified",
+                }
+            else:
+                return {
+                    "query_intent": "OTHER",
+                    "intent_confidence": 0.5,
+                    "intent_reasoning": "Fallback classification from text response",
+                    "workflow_status": "intent_identified",
+                }
+
+    except Exception as e:
+        logger.error(f"Intent identification failed: {e}")
+        # Default to data analysis on error to not break workflow
+        return {
+            "query_intent": "DATA_ANALYSIS",
+            "intent_confidence": 0.3,
+            "intent_reasoning": f"Error during classification: {str(e)}",
+            "workflow_status": "intent_identified",
+        }
+
+
+# ============================================
+# Node: Handle Non-Analysis Query
+# ============================================
+
+
+async def handle_non_analysis_node(
+    state: WorkflowState,
+) -> Dict[str, Any]:
+    """
+    Node: Handle non-data-analysis queries with a polite response.
+
+    This node is called when the query intent is classified as "OTHER"
+    (not data analysis related). It returns a simple response explaining
+    the AI's purpose.
+
+    Args:
+        state: Current workflow state
+
+    Returns:
+        State updates with polite rejection message
+    """
+    logger.info(f"[Node: handle_non_analysis] Query: {state['query'][:100]}...")
+
+    # Check if it's a greeting
+    query_lower = state["query"].lower().strip()
+    greetings = ["hello", "hi", "hey", "good morning", "good afternoon", "good evening"]
+    is_greeting = any(greeting in query_lower for greeting in greetings)
+
+    if is_greeting:
+        message = (
+            "Hello! I'm an AI data analyst assistant. I can help you analyze data, "
+            "generate SQL queries, create visualizations, and provide insights from your databases. "
+            "\n\nHow can I help you with your data today?"
+        )
+    else:
+        # Extract the topic they're asking about (simple heuristic)
+        message = (
+            f"I'm an AI data analyst specialized in business intelligence and data analysis. "
+            f"I cannot help you with '{state['query']}' as it's outside my area of expertise. "
+            "\n\nI can help you with:\n"
+            "• Querying databases with natural language\n"
+            "• Analyzing data and generating insights\n"
+            "• Creating visualizations and reports\n"
+            "• Identifying trends and patterns in your data\n"
+            "\nPlease ask me a data-related question!"
+        )
+
+    # Calculate execution time
+    from datetime import datetime as dt
+    started_at = dt.fromisoformat(state["started_at"])
+    completed_at = datetime.utcnow()
+    execution_time_ms = int((completed_at - started_at).total_seconds() * 1000)
+
+    return {
+        "workflow_status": "completed",
+        "query_success": False,
+        "final_message": message,
+        "intent_rejection": True,
+        "completed_at": completed_at.isoformat(),
+        "execution_time_ms": execution_time_ms,
+    }
 
 
 # ============================================
@@ -580,6 +733,29 @@ async def analyze_results_node(
 # ============================================
 # Conditional Edge Functions
 # ============================================
+
+
+def route_by_intent(state: WorkflowState) -> str:
+    """
+    Route workflow based on query intent.
+
+    This is called after identify_intent_node to decide whether
+    to proceed with data analysis or handle as non-analysis query.
+
+    Args:
+        state: Current workflow state
+
+    Returns:
+        Next node name: "explore_schema" or "handle_non_analysis"
+    """
+    intent = state.get("query_intent", "DATA_ANALYSIS")
+
+    if intent == "DATA_ANALYSIS":
+        logger.info("Routing to data analysis workflow")
+        return "explore_schema"
+    else:
+        logger.info(f"Routing to non-analysis handler (intent: {intent})")
+        return "handle_non_analysis"
 
 
 def should_request_human_review(state: WorkflowState) -> str:

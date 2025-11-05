@@ -2,15 +2,17 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Home, MessageSquare, Settings, Sparkles, Clock, TrendingUp } from 'lucide-react';
+import { Home, MessageSquare, Settings, Sparkles, Clock, TrendingUp, Users } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useAuthStore } from '@/stores/auth.store';
 
-const navigation: Array<{
+const baseNavigation: Array<{
   name: string;
   href: string;
   icon: any;
   description: string;
   badge?: string;
+  adminOnly?: boolean;
 }> = [
   {
     name: 'Dashboard',
@@ -23,6 +25,13 @@ const navigation: Array<{
     href: '/dashboard/chat',
     icon: MessageSquare,
     description: 'Query & analyze'
+  },
+  {
+    name: 'Users',
+    href: '/dashboard/users',
+    icon: Users,
+    description: 'Manage users',
+    adminOnly: true
   },
   {
     name: 'Settings',
@@ -40,6 +49,16 @@ const quickLinks = [
 
 export function Sidebar() {
   const pathname = usePathname();
+  const { user } = useAuthStore();
+
+  // Filter navigation items based on user role
+  const navigation = baseNavigation.filter((item) => {
+    // If item requires admin, check if user is admin
+    if (item.adminOnly) {
+      return user?.role === 'admin';
+    }
+    return true;
+  });
 
   return (
     <aside className="w-64 bg-white border-r border-gray-200 flex flex-col">
@@ -50,10 +69,11 @@ export function Sidebar() {
       <nav className="flex-1 px-3 py-4 space-y-1">
         {navigation.map((item) => {
           const Icon = item.icon;
-          // For Settings, match /dashboard/settings and /dashboard/settings/*
-          const isActive = item.href === '/dashboard/settings'
-            ? pathname.startsWith('/dashboard/settings')
-            : pathname === item.href;
+          // For Settings and Users, match exact path and subpaths
+          const isActive =
+            item.href === '/dashboard/settings' || item.href === '/dashboard/users'
+              ? pathname.startsWith(item.href)
+              : pathname === item.href;
 
           return (
             <Link

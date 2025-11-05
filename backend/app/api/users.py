@@ -28,6 +28,7 @@ class UserProfile(BaseModel):
     role: str
     is_active: bool
     company_id: Optional[str] = None
+    company_name: Optional[str] = None
     department: Optional[str] = None
 
 
@@ -39,7 +40,6 @@ class UserProfileUpdate(BaseModel):
 
 class RoleUpdateRequest(BaseModel):
     """Request to update user role (admin only)."""
-    user_id: str
     new_role: str = Field(..., description="New role: admin, analyst, viewer, or user")
 
 
@@ -61,13 +61,25 @@ class PasswordChangeRequest(BaseModel):
 
 @router.get("/me", response_model=UserProfile)
 async def get_current_user_details(
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
 ):
     """
     Get current user profile.
 
-    Returns full user profile including role, email, department, etc.
+    Returns full user profile including role, email, department, company, etc.
     """
+    # Fetch company name if user has a company
+    company_name = None
+    if current_user.company_id:
+        from app.models.company import Company
+        company_result = await db.execute(
+            select(Company).where(Company.id == current_user.company_id)
+        )
+        company = company_result.scalar_one_or_none()
+        if company:
+            company_name = company.name
+
     return UserProfile(
         id=str(current_user.id),
         email=current_user.email,
@@ -75,6 +87,7 @@ async def get_current_user_details(
         role=current_user.role,
         is_active=current_user.is_active,
         company_id=str(current_user.company_id) if current_user.company_id else None,
+        company_name=company_name,
         department=current_user.department,
     )
 
@@ -103,6 +116,17 @@ async def update_user_profile(
 
         logger.info(f"User profile updated: user_id={current_user.id}")
 
+        # Fetch company name
+        company_name = None
+        if current_user.company_id:
+            from app.models.company import Company
+            company_result = await db.execute(
+                select(Company).where(Company.id == current_user.company_id)
+            )
+            company = company_result.scalar_one_or_none()
+            if company:
+                company_name = company.name
+
         return UserProfile(
             id=str(current_user.id),
             email=current_user.email,
@@ -110,6 +134,7 @@ async def update_user_profile(
             role=current_user.role,
             is_active=current_user.is_active,
             company_id=str(current_user.company_id) if current_user.company_id else None,
+            company_name=company_name,
             department=current_user.department,
         )
     except Exception as e:
@@ -121,8 +146,77 @@ async def update_user_profile(
         )
 
 
-@router.put("/role", response_model=RoleUpdateResponse, summary="Update user role (Admin only)")
+@router.get("/", response_model=list[UserProfile], summary="List company users (Admin only)")
+async def list_company_users(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    List all users in the current user's company (admin only).
+
+    Authorization: Only admins can list users.
+    Returns: All active users in the same company.
+    """
+    # Check if current user is admin
+    if current_user.role != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only administrators can list users",
+        )
+
+    # Check if user has a company
+    if not current_user.company_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="User not associated with any company",
+        )
+
+    try:
+        # Get company name
+        from app.models.company import Company
+        company_result = await db.execute(
+            select(Company).where(Company.id == current_user.company_id)
+        )
+        company = company_result.scalar_one_or_none()
+        company_name = company.name if company else None
+
+        # Get all users in the same company
+        stmt = select(User).where(
+            User.company_id == current_user.company_id,
+            User.is_active == True
+        )
+        result = await db.execute(stmt)
+        users = result.scalars().all()
+
+        logger.info(f"Listed {len(users)} users for company {current_user.company_id}")
+
+        return [
+            UserProfile(
+                id=str(user.id),
+                email=user.email,
+                full_name=user.full_name,
+                role=user.role,
+                is_active=user.is_active,
+                company_id=str(user.company_id) if user.company_id else None,
+                company_name=company_name,
+                department=user.department,
+            )
+            for user in users
+        ]
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to list users: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to list users",
+        )
+
+
+@router.put("/{user_id}/role", response_model=RoleUpdateResponse, summary="Update user role (Admin only)")
 async def update_user_role(
+    user_id: str,
     request: RoleUpdateRequest,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)
@@ -131,7 +225,7 @@ async def update_user_role(
     Update user role (admin only).
 
     Authorization: Only admins can change roles.
-    Protection: Prevents self-demotion from admin.
+    Protection: Prevents self-demotion from admin and cross-company role changes.
     Validation: Only allows valid roles (admin, analyst, viewer, user).
     """
     # Check if current user is admin
@@ -151,7 +245,7 @@ async def update_user_role(
 
     try:
         # Get target user
-        stmt = select(User).where(User.id == request.user_id)
+        stmt = select(User).where(User.id == user_id)
         result = await db.execute(stmt)
         target_user = result.scalar_one_or_none()
 
@@ -159,6 +253,20 @@ async def update_user_role(
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="User not found",
+            )
+
+        # Security: Prevent cross-company role changes
+        if target_user.company_id != current_user.company_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Cannot manage users from other companies",
+            )
+
+        # Handle orphan users (users without company)
+        if target_user.company_id is None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Cannot change role of user without company",
             )
 
         # Prevent self-demotion from admin

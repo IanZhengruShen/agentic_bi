@@ -71,7 +71,7 @@ export default function ChatInput() {
             </SelectTrigger>
             <SelectContent>
               {availableDatabases.length === 0 && !isLoadingDatabases && (
-                <SelectItem value="" disabled>
+                <SelectItem value="no-databases" disabled>
                   No databases available
                 </SelectItem>
               )}

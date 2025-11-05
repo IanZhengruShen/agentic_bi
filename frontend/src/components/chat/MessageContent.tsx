@@ -14,11 +14,22 @@ interface MessageContentProps {
 }
 
 export default function MessageContent({ response, messageId }: MessageContentProps) {
-  const { analysis, visualization, insights, recommendations, warnings, errors } = response;
+  const { analysis, visualization, insights, recommendations, warnings, errors, intent_rejection, final_message } = response;
   const { defaultChartConfig } = useConversationStore();
 
   // Generate unique chart ID
   const chartId = messageId ? `${messageId}_chart` : chartService.generateChartId();
+
+  // For non-analysis queries (greetings, general questions), show only the message
+  if (intent_rejection && final_message) {
+    return (
+      <div className="rounded-lg bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 p-4">
+        <div className="whitespace-pre-wrap text-gray-700 dark:text-gray-300">
+          {final_message}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-3">

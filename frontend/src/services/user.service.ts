@@ -37,13 +37,24 @@ export const updateUserProfile = async (
 };
 
 /**
+ * List all users in company (admin only)
+ */
+export const listCompanyUsers = async (): Promise<UserProfile[]> => {
+  const response = await apiClient.get<UserProfile[]>(`${USERS_BASE_URL}/`);
+  return response.data;
+};
+
+/**
  * Update user role (admin only)
+ * @param userId - The ID of the user whose role to update
+ * @param request - The new role to assign
  */
 export const updateUserRole = async (
+  userId: string,
   request: RoleUpdateRequest
 ): Promise<RoleUpdateResponse> => {
   const response = await apiClient.put<RoleUpdateResponse>(
-    `${USERS_BASE_URL}/role`,
+    `${USERS_BASE_URL}/${userId}/role`,
     request
   );
   return response.data;

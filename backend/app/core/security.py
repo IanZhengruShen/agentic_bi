@@ -7,6 +7,7 @@ from jose import JWTError, jwt
 from passlib.context import CryptContext
 from fastapi import HTTPException, status
 import hashlib
+import uuid
 
 from app.core.config import settings
 
@@ -99,7 +100,8 @@ def create_access_token(data: Dict[str, Any], expires_delta: Optional[timedelta]
     to_encode.update({
         "exp": expire,
         "iat": datetime.utcnow(),
-        "type": "access"
+        "type": "access",
+        "jti": str(uuid.uuid4())  # Add unique JWT ID for token tracking
     })
 
     return jwt.encode(to_encode, settings.jwt.jwt_secret, algorithm=settings.jwt.jwt_algorithm)
@@ -121,7 +123,8 @@ def create_refresh_token(data: Dict[str, Any]) -> str:
     to_encode.update({
         "exp": expire,
         "iat": datetime.utcnow(),
-        "type": "refresh"
+        "type": "refresh",
+        "jti": str(uuid.uuid4())  # Add unique JWT ID to prevent duplicate tokens
     })
 
     return jwt.encode(to_encode, settings.jwt.jwt_secret, algorithm=settings.jwt.jwt_algorithm)

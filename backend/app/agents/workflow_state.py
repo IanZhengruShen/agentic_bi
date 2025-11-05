@@ -30,6 +30,12 @@ class WorkflowState(TypedDict):
     database: str  # Target database
     options: Dict[str, Any]  # User options
 
+    # Query Intent Classification (for routing)
+    query_intent: Optional[str]  # DATA_ANALYSIS or OTHER
+    intent_confidence: Optional[float]  # Confidence in classification (0.0-1.0)
+    intent_reasoning: Optional[str]  # Reasoning for classification
+    intent_rejection: bool  # True if query was rejected as non-analysis
+
     # Schema information
     schema: Optional[Dict[str, Any]]
 
@@ -68,6 +74,9 @@ class WorkflowState(TypedDict):
 
     # Visualization (for future PRs)
     visualizations: Annotated[List[Dict[str, Any]], operator.add]
+
+    # Response message
+    final_message: Optional[str]  # Final message for non-analysis queries
 
     # Error tracking
     errors: Annotated[List[str], operator.add]
@@ -115,6 +124,12 @@ def create_initial_state(
         database=database,
         options=options or {},
 
+        # Query Intent Classification
+        query_intent=None,
+        intent_confidence=None,
+        intent_reasoning=None,
+        intent_rejection=False,
+
         # Schema
         schema=None,
 
@@ -153,6 +168,9 @@ def create_initial_state(
 
         # Visualization
         visualizations=[],
+
+        # Response message
+        final_message=None,
 
         # Errors
         errors=[],

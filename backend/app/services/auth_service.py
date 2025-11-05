@@ -89,24 +89,45 @@ class AuthService:
                 detail="Email already registered"
             )
 
-        # Create company if provided
-        company = None
-        if user_data.company_name:
+        # Create or find company (required for multi-tenancy)
+        email_domain = user_data.email.split("@")[1] if "@" in user_data.email else "unknown"
+        company_name = user_data.company_name or f"{email_domain.split('.')[0].capitalize()} Company"
+
+        # Check if company exists with this name AND domain (to prevent duplicates)
+        # Use first() to gracefully handle legacy duplicates
+        result = await self.db.execute(
+            select(Company).where(
+                Company.domain == email_domain,
+                Company.name == company_name
+            )
+        )
+        company = result.scalars().first()
+
+        # If no company exists, create one
+        if not company:
             company = Company(
-                name=user_data.company_name,
-                domain=user_data.email.split("@")[1] if "@" in user_data.email else None
+                name=company_name,
+                domain=email_domain
             )
             self.db.add(company)
             await self.db.flush()
 
-        # Create user
+        # Determine role: first user in company is admin, rest are users
+        result = await self.db.execute(
+            select(User).where(User.company_id == company.id)
+        )
+        existing_users_in_company = result.scalars().all()
+        is_first_user_in_company = len(existing_users_in_company) == 0
+        user_role = "admin" if is_first_user_in_company else "user"
+
+        # Create user (company_id is always set now)
         user = User(
             email=user_data.email,
             password_hash=get_password_hash(user_data.password),
             full_name=user_data.full_name,
             department=user_data.department,
-            company_id=company.id if company else None,
-            role="admin" if company else "user"  # First user in company is admin
+            company_id=company.id,
+            role=user_role
         )
 
         self.db.add(user)
@@ -231,7 +252,13 @@ class AuthService:
                 detail="User not found or inactive"
             )
 
-        # Create new tokens
+        # Revoke old refresh token (mark as inactive but don't commit yet)
+        db_token.is_active = False
+        db_token.revoked_at = datetime.utcnow()
+        # Flush to DB but don't commit (will commit with new tokens)
+        await self.db.flush()
+
+        # Create new tokens (this will commit everything)
         return await self.create_user_tokens(user)
 
     async def revoke_refresh_token(self, refresh_token: str) -> None:

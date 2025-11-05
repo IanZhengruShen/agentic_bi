@@ -17,6 +17,7 @@ from app.api import (
     databases_router,
     chart_preferences_router,
     users_router,
+    debug_router,
 )
 
 # Create FastAPI app
@@ -52,6 +53,9 @@ app.include_router(chart_preferences_router)
 
 # Include users router
 app.include_router(users_router)
+
+# Include debug router (temporary, for troubleshooting)
+app.include_router(debug_router)
 
 # Include WebSocket router
 app.include_router(websocket_router)

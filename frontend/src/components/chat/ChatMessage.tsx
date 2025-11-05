@@ -49,7 +49,9 @@ export default function ChatMessage({ message }: ChatMessageProps) {
               </div>
             ) : (
               <>
-                <p className="text-gray-900">{message.content}</p>
+                {message.content && (
+                  <p className="text-gray-900">{message.content}</p>
+                )}
                 {message.workflowResponse && (
                   <MessageContent response={message.workflowResponse} />
                 )}
