@@ -82,8 +82,15 @@ async def login(
     # Generate tokens
     tokens = await auth_service.create_user_tokens(user)
 
-    # Update last login
-    await auth_service.update_last_login(user.id)
+    # Update last login (non-blocking, don't wait for it)
+    # Wrapped in try-except to prevent login failures due to DB issues
+    try:
+        await auth_service.update_last_login(user.id)
+    except Exception as e:
+        # Log the error but don't fail the login
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.warning(f"Failed to update last_login for user {user.id}: {e}")
 
     return tokens
 
@@ -102,9 +109,22 @@ async def refresh_token(
     **Returns:**
     - New access and refresh tokens
     """
-    auth_service = AuthService(db)
-    tokens = await auth_service.refresh_access_token(token_data.refresh_token)
-    return tokens
+    try:
+        auth_service = AuthService(db)
+        tokens = await auth_service.refresh_access_token(token_data.refresh_token)
+        return tokens
+    except HTTPException:
+        # Re-raise HTTP exceptions (401, etc.)
+        raise
+    except Exception as e:
+        # Log unexpected errors but return user-friendly message
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.error(f"Unexpected error during token refresh: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to refresh token. Please login again."
+        )
 
 
 @router.get("/me", response_model=UserResponse)

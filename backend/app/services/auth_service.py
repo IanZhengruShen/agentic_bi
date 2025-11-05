@@ -231,7 +231,13 @@ class AuthService:
                 detail="User not found or inactive"
             )
 
-        # Create new tokens
+        # Revoke old refresh token (mark as inactive but don't commit yet)
+        db_token.is_active = False
+        db_token.revoked_at = datetime.utcnow()
+        # Flush to DB but don't commit (will commit with new tokens)
+        await self.db.flush()
+
+        # Create new tokens (this will commit everything)
         return await self.create_user_tokens(user)
 
     async def revoke_refresh_token(self, refresh_token: str) -> None:
