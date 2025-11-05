@@ -168,6 +168,57 @@ async def save_custom_template(
         raise HTTPException(status_code=500, detail=f"Failed to save template: {str(e)}")
 
 
+@router.put("/templates/{template_id}", response_model=SavedTemplate)
+async def update_custom_template(
+    template_id: str,
+    request: SaveTemplateRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Update a saved custom template.
+    """
+    from sqlalchemy import update
+
+    try:
+        # Get current preferences
+        user_prefs = current_user.preferences or {}
+        chart_prefs = user_prefs.get("chart_preferences", {})
+        saved_templates = chart_prefs.get("saved_templates", [])
+
+        # Find and update the template
+        template_found = False
+        for template in saved_templates:
+            if template["id"] == template_id:
+                template_found = True
+                template["name"] = request.name
+                template["description"] = request.description
+                template["template_definition"] = request.template_definition.model_dump(mode='json')
+                template["thumbnail"] = request.thumbnail
+                template["updated_at"] = datetime.utcnow().isoformat()
+                updated_template = template
+                break
+
+        if not template_found:
+            raise HTTPException(status_code=404, detail="Template not found")
+
+        chart_prefs["saved_templates"] = saved_templates
+        user_prefs["chart_preferences"] = chart_prefs
+
+        # Save using UPDATE statement
+        stmt = update(User).where(User.id == current_user.id).values(preferences=user_prefs)
+        await db.execute(stmt)
+        await db.commit()
+
+        return updated_template
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        await db.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to update template: {str(e)}")
+
+
 @router.delete("/templates/{template_id}")
 async def delete_custom_template(
     template_id: str,

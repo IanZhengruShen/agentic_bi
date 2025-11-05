@@ -205,6 +205,32 @@ async def apply_theme_node(
                     if layout_update:
                         fig.update_layout(**layout_update)
 
+                    # IMPORTANT: Update trace colors to use colorway
+                    # Plotly Express sets explicit colors on traces which override colorway
+                    # We need to update trace marker colors to use the custom colorway
+                    if layout_settings.get("colorway"):
+                        colorway = layout_settings["colorway"]
+                        for i, trace in enumerate(fig.data):
+                            color_index = i % len(colorway)
+                            trace_color = colorway[color_index]
+
+                            # Update marker colors for different trace types
+                            if trace.type == 'pie':
+                                # Pie charts use marker.colors (plural) for multiple slices
+                                if hasattr(trace, 'marker'):
+                                    trace.marker.colors = colorway
+                            elif hasattr(trace, 'marker'):
+                                # For bar, scatter, box, etc.
+                                # Only update if it's not an array (individual point colors)
+                                if not isinstance(trace.marker.color, (list, tuple)):
+                                    trace.marker.color = trace_color
+
+                            if hasattr(trace, 'line') and trace.type in ['scatter', 'line']:
+                                # For line charts
+                                trace.line.color = trace_color
+
+                        logger.info(f"[Node: apply_theme] Applied colorway to {len(fig.data)} traces")
+
                 # Apply logo if present
                 if layout_settings.get("logo_url"):
                     logo_url = layout_settings["logo_url"]

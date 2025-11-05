@@ -56,6 +56,20 @@ export const saveCustomTemplate = async (
 };
 
 /**
+ * Update a saved custom template
+ */
+export const updateCustomTemplate = async (
+  templateId: string,
+  request: SaveTemplateRequest
+): Promise<SavedTemplate> => {
+  const response = await apiClient.put<SavedTemplate>(
+    `${CHART_PREFERENCES_BASE_URL}/templates/${templateId}`,
+    request
+  );
+  return response.data;
+};
+
+/**
  * Delete a saved custom template
  */
 export const deleteCustomTemplate = async (templateId: string): Promise<void> => {
